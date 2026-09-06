@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>fogping — link quality oscilloscope</title>
+<style>
+  /* Palettes are built around one mechanic: the chart colours each sample by how far
+     it sits from that round's median, walking --smoke-hot -> mid -> cool as deviation
+     grows, with opacity falling from .5 to .1 along the way. So the three smoke stops
+     are not one colour dimmed three times — they are a temperature ramp. The samples
+     hugging the median burn bright and warm, the outliers cool and fade, and the
+     median line rides on top in a hue borrowed from neither end of that ramp.
+     Bauhaus supplies the discipline (hue carries meaning, not decoration), Anderson
+     the ground (desaturated field, one saturated accent). Loss red is reserved and
+     appears nowhere except failure. */
+
+  /* Signal — cyan trace over a cloud that burns from white-gold to cold ember. */
+  :root {
+    --bg:#14161a; --panel:#1c2027; --screen:#0d0f13; --line:#2b323c;
+    --phos:#22d3ee; --amber:#fbbf24; --alert:#fb3b53; --ink:#c0c6ce; --dim:#78848f;
+    --grid-axis:#333b47; --grid-split:#1c222a;
+    --smoke:rgba(251,191,36,.20); --lossbar:rgba(251,59,83,.7); --glow:5;
+    --smoke-hot:#b86e14; --smoke-mid:#8c3f0d; --smoke-cool:#452740;
+    --shadow:0 1px 2px rgba(0,0,0,.45); --shadow-lg:0 12px 32px rgba(0,0,0,.45);
+    --mono: ui-monospace,"SF Mono","Cascadia Mono",Consolas,"Noto Sans Mono",monospace;
+    /* Interface text gets the system UI face; numbers and axis labels stay monospace
+       so digits line up and keep the instrument feel. Mixing the two is what separates
+       a product from terminal output. */
+    --sans: system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    /* A real scale instead of everything crowded between 10 and 13px. */
+    --fs-micro:10px; --fs-small:11px; --fs-body:13px; --fs-lead:15px;
+    --fs-title:19px; --fs-metric:30px;
+  }
+
+  /* Daylight — ink on lab paper. Core burns terracotta, edges cool to slate. */
+  html[data-theme="daylight"] {
+    --bg:#f2efe6; --panel:#fbf9f3; --screen:#fffdf7; --line:#ddd6c4;
+    --phos:#1d4ed8; --amber:#b45309; --alert:#be123c; --ink:#3e4346; --dim:#8a8677;
+    --grid-axis:#cdc6b2; --grid-split:#e9e3d3;
+    --smoke:rgba(180,83,9,.22); --lossbar:rgba(190,18,60,.6); --glow:0;
+    --smoke-hot:#e07a3a; --smoke-mid:#e8a878; --smoke-cool:#cfc8b8;
+    --shadow:0 1px 3px rgba(80,70,40,.12); --shadow-lg:0 12px 30px rgba(80,70,40,.16);
+  }
+
+  /* Arctic — near-black trace. Cloud runs from deep sea to pale frost. */
+  html[data-theme="arctic"] {
+    --bg:#eaeff4; --panel:#f7fafc; --screen:#fdfeff; --line:#d3dce5;
+    --phos:#0f172a; --amber:#0369a1; --alert:#dc2626; --ink:#3a4353; --dim:#7d8b99;
+    --grid-axis:#c2cdd8; --grid-split:#e2e9f0;
+    --smoke:rgba(56,132,199,.22); --lossbar:rgba(220,38,38,.55); --glow:0;
+    --smoke-hot:#4a9fd4; --smoke-mid:#8dc0e0; --smoke-cool:#cfe0ec;
+    --shadow:0 1px 3px rgba(30,50,70,.10); --shadow-lg:0 12px 30px rgba(30,50,70,.14);
+  }
+
+  /* Budapest — Anderson's plum and rose. Core is deep raspberry, edges go powder. */
+  html[data-theme="budapest"] {
+    --bg:#f7ebe8; --panel:#fdf5f2; --screen:#fffaf8; --line:#e6cfc8;
+    --phos:#5b2a4f; --amber:#c9754f; --alert:#c1362f; --ink:#4c3d41; --dim:#9c8087;
+    --grid-axis:#dcc0b8; --grid-split:#f0e0da;
+    --smoke:rgba(216,133,140,.26); --lossbar:rgba(193,54,47,.55); --glow:0;
+    --smoke-hot:#e0748c; --smoke-mid:#eaa8ae; --smoke-cool:#f0dbd2;
+    --shadow:0 1px 3px rgba(120,80,80,.12); --shadow-lg:0 12px 30px rgba(120,80,80,.16);
+  }
+
+  /* Amber CRT — a VT220 left on overnight. The cloud is pure phosphor decay:
+     white-hot core, amber body, dying green at the fringe, exactly how a long
+     persistence tube fades. The trace stays a cooler gold so it sits above it. */
+  html[data-theme="amber"] {
+    --bg:#12100a; --panel:#1c1810; --screen:#0a0806; --line:#38301c;
+    --phos:#ffd75e; --amber:#ffd98a; --alert:#ff5f2e; --ink:#cebd95; --dim:#8f7b4e;
+    --grid-axis:#443a20; --grid-split:#1e1a10;
+    --smoke:rgba(255,176,0,.20); --lossbar:rgba(255,95,46,.65); --glow:7;
+    --smoke-hot:#a86a10; --smoke-mid:#7d4508; --smoke-cool:#2f4429;
+    --shadow:0 1px 2px rgba(0,0,0,.6); --shadow-lg:0 12px 32px rgba(0,0,0,.55);
+  }
+
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--bg); color:var(--ink); font-family:var(--sans);
+         font-size:var(--fs-body); line-height:1.5; padding:20px 24px;
+         -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; }
+  header { display:flex; align-items:baseline; gap:14px; margin-bottom:14px; flex-wrap:wrap; }
+  .mark { color:var(--phos); font-family:var(--mono); font-weight:700;
+          font-size:26px; letter-spacing:.03em; display:flex; align-items:center; gap:9px; }
+  .tag { color:var(--dim); font-size:var(--fs-small); font-weight:400; letter-spacing:.01em; }
+  .row { display:flex; gap:12px; align-items:flex-start; margin-bottom:14px; flex-wrap:wrap; }
+  .pills { display:flex; gap:8px; flex-wrap:wrap; }
+  .pill { font-family:var(--sans); font-size:var(--fs-body); font-weight:500;
+          background:var(--panel); color:var(--ink);
+          border:1px solid var(--line); border-radius:6px; padding:7px 14px; cursor:pointer;
+          display:flex; align-items:center; gap:8px; transition:border-color .12s, color .12s; }
+  .pill.on { border-color:var(--phos); color:var(--phos); font-weight:600; }
+  .led { width:8px; height:8px; border-radius:50%; background:var(--phos); box-shadow:0 0 6px var(--phos); }
+  .led.bad { background:var(--alert); box-shadow:0 0 6px var(--alert); }
+  /* Brand dot: alternates the two colours already used for host status (green =
+     healthy, red = down), so the same signal that reads "up/down" on a target row
+     reads "alive" at the letterhead — a small mnemonic, not a new colour language. */
+  .brand-led { width:11px; height:11px; border-radius:50%; flex:none;
+               animation: brand-blink 2.4s ease-in-out infinite; }
+  @keyframes brand-blink {
+    0%, 45%   { background:var(--phos); box-shadow:0 0 8px var(--phos); }
+    50%, 95%  { background:var(--alert); box-shadow:0 0 8px var(--alert); }
+    100%      { background:var(--phos); box-shadow:0 0 8px var(--phos); }
+  }
+  @media (prefers-reduced-motion: reduce) { .brand-led { animation:none; background:var(--phos); } }
+  .rng { display:flex; background:var(--panel); border:1px solid var(--line); border-radius:4px; overflow:hidden; }
+  .rng span { color:var(--dim); font-family:var(--sans); font-size:var(--fs-micro);
+              font-weight:600; padding:9px 10px 0 12px; letter-spacing:.14em; }
+  .rng button { font-family:var(--mono); font-size:var(--fs-small); background:none; border:0;
+                color:var(--dim); padding:8px 13px; cursor:pointer; transition:color .12s; }
+  .rng button:hover { color:var(--ink); }
+  .rng button.on { background:color-mix(in srgb, var(--amber) 15%, transparent);
+                   color:var(--amber); font-weight:700; }
+  .scope { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:14px; }
+  .crt { position:relative; }
+  #chart { height:420px; background:var(--screen); border-radius:4px; }
+  html:not([data-theme]) .crt::after {
+    content:""; position:absolute; inset:0; border-radius:4px; pointer-events:none;
+    background:
+      repeating-linear-gradient(0deg, transparent 0 3px, rgba(0,0,0,.045) 3px 4px),
+      radial-gradient(120% 90% at 50% 42%, transparent 55%, rgba(0,0,0,.38) 100%);
+  }
+  .readouts { display:flex; gap:34px; margin-top:12px; flex-wrap:wrap; align-items:flex-end; }
+  .ro .v { font-family:var(--mono); font-size:var(--fs-metric); font-weight:600;
+           color:var(--phos); line-height:1.1; font-variant-numeric:tabular-nums; }
+  .ro .v.bad { color:var(--alert); }
+  .ro .l { font-family:var(--sans); font-size:var(--fs-micro); font-weight:600;
+           color:var(--dim); letter-spacing:.13em; margin-top:4px; text-transform:uppercase; }
+  .sp { flex:1; }
+  footer { margin-top:14px; color:var(--dim); font-size:var(--fs-small);
+           display:flex; gap:14px; flex-wrap:wrap; align-items:baseline; }
+  #conclusion { color:var(--ink); font-family:var(--mono); font-weight:600;
+                font-size:var(--fs-body); }
+  .legend { color:var(--dim); font-family:var(--sans); font-size:var(--fs-small); }
+  .promos { margin-top:16px; }
+  .promo { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px;
+           box-shadow:var(--shadow); text-decoration:none; display:block; }
+  .promo.sponsor { border-style:dashed; }
+  .promo.sponsor:hover { border-color:var(--phos); }
+  .promo-h { font-family:var(--sans); font-size:var(--fs-micro); font-weight:700;
+             letter-spacing:.16em; color:var(--dim); margin-bottom:7px; text-transform:uppercase; }
+  .promo-b { color:var(--ink); font-size:var(--fs-body); display:flex; gap:16px;
+             align-items:center; justify-content:space-between; flex-wrap:wrap; }
+  .promo-b a { color:var(--phos); text-decoration:none; font-weight:600; white-space:nowrap; }
+  .promo-b a:hover { text-decoration:underline; }
+  .promo-h #ver { color:var(--phos); font-family:var(--mono); letter-spacing:0; font-weight:600; }
+  .share .promo-b { display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
+  .share a { color:var(--phos); text-decoration:none; font-weight:600; }
+  .share a:hover { text-decoration:underline; }
+  .share-links { display:flex; gap:12px; }
+  .share-links a { color:var(--dim); font-weight:500; }
+</style>
+</head>
+<body>
+<header>
+  <div class="mark">fogping <span class="brand-led"></span></div>
+  <div class="tag">One binary. One graph. One metric: Latency.</div>
+  <button class="pill" id="themeBtn" title="switch theme" style="margin-left:auto">◐ <span id="themeName">dark</span></button>
+</header>
+
+<div class="row">
+  <div class="rng" id="tfilter" style="display:none">
+    <button data-t="all" class="on">All</button>
+    <button data-t="icmp">PING</button>
+    <button data-t="tcp">TCP</button>
+  </div>
+  <div class="pills" id="pills"></div>
+</div>
+
+<div class="scope">
+  <div class="crt"><div id="chart"></div></div>
+  <div class="readouts">
+    <div class="ro"><div class="v" id="p50">–</div><div class="l">P50 MS</div></div>
+    <div class="ro"><div class="v" id="p90">–</div><div class="l">P90 MS</div></div>
+    <div class="ro"><div class="v" id="p99">–</div><div class="l">P99 MS</div></div>
+    <div class="ro"><div class="v" id="loss">–</div><div class="l">LOSS %</div></div>
+    <div class="ro"><div class="v" id="bursts">–</div><div class="l">BURSTS · WINDOW</div></div>
+    <div class="sp"></div>
+    <div class="rng">
+      <button id="selReset" style="display:none;color:var(--amber)">✕ selection</button><span>TIME/DIV</span>
+      <button data-m="60">1h</button>
+      <button data-m="240" class="on">4h</button>
+      <button data-m="480">8h</button>
+      <button data-m="1440">1d</button>
+      <button data-m="4320">3d</button>
+      <button data-m="7200">5d</button>
+      <button data-m="10080">7d</button>
+      <button data-m="20160">14d</button>
+      <button data-m="43200">30d</button>
+      <button data-m="86400">60d</button>
+      <button data-m="172800">120d</button>
+      <button data-m="432000">300d</button>
+    </div>
+    <div class="rng custom">
+      <input type="datetime-local" id="customFrom" step="60">
+      <span class="sep">→</span>
+      <input type="datetime-local" id="customTo" step="60">
+      <button id="customGo">Go</button>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <span id="conclusion"></span>
+  <span class="legend">Line = per-round median · Smoke = all samples · Red bars = loss% · ◆ = burst</span>
+</footer>
+
+<div class="promos">
+  <div class="promo sponsor" id="sponsorSlot">
+    <div class="promo-h">SPONSOR <span id="ver"></span></div>
+    <div class="promo-b">
+      <span>This slot is for one VPS / IDC / network sponsor — your GIF here.</span>
+      <span style="display:flex; gap:16px; align-items:center;">
+        <a href="https://github.com/githubflyideas/fogping" target="_blank" rel="noopener">Powered by Fogping</a>
+        <a href="https://github.com/githubflyideas/fogping" target="_blank" rel="noopener">★ Star on GitHub</a>
+      </span>
+    </div>
+  </div>
+</div>
+
+<script src="/static/echarts.min.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const THEMES = ['dark', 'daylight', 'arctic', 'budapest', 'amber'];
+let theme = localStorage.getItem('pp_theme') || 'dark';
+if (!THEMES.includes(theme)) theme = 'dark';
+function applyTheme() {
+  if (theme === 'dark') delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = theme;
+  const el = $('themeName'); if (el) el.textContent = theme;
+}
+applyTheme();
+let targets = [], current = null, minutes = 240, typeFilter = 'all';
+
+// Deep link: /#t=NAME&m=1440 — send "this link, this window" to a colleague
+const hp = new URLSearchParams(location.hash.slice(1));
+if (hp.get('m') && [60,360,720,1440].includes(+hp.get('m'))) minutes = +hp.get('m');
+if (hp.get('t')) current = hp.get('t');
+document.querySelectorAll('.rng button[data-m]').forEach(b => b.classList.toggle('on', +b.dataset.m === minutes));
+
+const chart = echarts.init($('chart'));
+
+
+
+async function loadTargets() {
+  targets = await (await fetch('/api/targets')).json() || [];
+  const kinds = new Set(targets.map(t => t.type));
+  $('tfilter').style.display = kinds.size > 1 ? '' : 'none';
+  const visible = targets.filter(t => typeFilter === 'all' || t.type === typeFilter);
+  const pills = $('pills'); pills.innerHTML = '';
+  visible.forEach(t => {
+    const b = document.createElement('button');
+    b.className = 'pill' + (t.name === current ? ' on' : '');
+    b.innerHTML = `<span class="led${t.down ? ' bad' : ''}"></span>${t.name}`;
+    b.onclick = () => { current = t.name; render(); };
+    pills.appendChild(b);
+  });
+  if ((!current || !visible.some(t => t.name === current)) && visible.length) current = visible[0].name;
+}
+
+let sel = null; // {from,to} 自定义查询区间(unix 秒)
+let renderSeq = 0;
+let inflight = null; // 正在飞的 series 请求 —— 新请求发起前先掐掉它,
+                     // 否则快速点击会在服务端堆起一串没人要的慢查询,互相拖死。
+let rendering = false; // 一次渲染(含慢速 band 查询)是否仍在进行
+async function render() {
+  const seq = ++renderSeq;
+  rendering = true;
+  try {
+    await renderInner(seq);
+  } finally {
+    if (seq === renderSeq) rendering = false; // 只有最新一次才解锁
+  }
+}
+
+async function renderInner(seq) {
+  await loadTargets();
+  const t = targets.find(x => x.name === current);
+  if (!t) return;
+  let url = `/api/series?target=${encodeURIComponent(current)}`;
+  if (sel) url += `&from=${sel.from}&to=${sel.to}`;
+  else url += `&minutes=${minutes}`;
+  if (inflight) inflight.abort();
+  const ctl = new AbortController();
+  inflight = ctl;
+  let rounds;
+  try {
+    rounds = await (await fetch(url, { signal: ctl.signal })).json() || [];
+  } catch (e) {
+    if (e.name === 'AbortError') return; // 被新点击取代,静默退出
+    throw e;
+  } finally {
+    if (inflight === ctl) inflight = null;
+  }
+  if (seq !== renderSeq) return; // 过期响应:已切走,丢弃
+
+  const smoke = [], median = [], lossBars = [], burstPts = [];
+  let sent = 0, recv = 0, bursts = 0;
+  const pool = [];
+  const roundInfo = {};
+  rounds.forEach(r => {
+    const ts = r.t * 1000;
+    let rmed = 0;
+    if (r.ms && r.ms.length) {
+      const s = [...r.ms].sort((a,b)=>a-b);
+      rmed = s[Math.floor(s.length/2)];
+      median.push([ts, rmed]);
+    }
+    (r.ms || []).forEach(v => {
+      smoke.push([ts, v, rmed ? Math.abs(v - rmed) / rmed : 0]); // 维度2 = 偏离该轮中位数的比例
+      pool.push(v);
+    });
+    sent += r.s; recv += r.r;
+    const lp = r.s ? (r.s - r.r) / r.s * 100 : 0;
+    if (lp > 0) lossBars.push([ts, lp]);
+    if (r.b) { bursts++; burstPts.push([ts, lp, r.z || 0, r.s - r.r, r.s]); }
+    const srt = (r.ms && r.ms.length) ? [...r.ms].sort((a,b)=>a-b) : [];
+    let avg = 0, mdev = 0;
+    if (srt.length) {
+      avg = srt.reduce((a,v)=>a+v,0) / srt.length;
+      mdev = Math.sqrt(srt.reduce((a,v)=>a+(v-avg)*(v-avg),0) / srt.length);
+    }
+    roundInfo[ts] = { med: rmed, lo: srt[0] || 0, hi: srt[srt.length-1] || 0, avg, mdev,
+                      n: (r.ms || []).length, lp, lost: r.s - r.r, s: r.s, b: r.b, z: r.z || 0 };
+  });
+  pool.sort((a,b)=>a-b);
+  const q = p => pool.length ? pool[Math.min(pool.length-1, Math.floor(pool.length*p))] : 0;
+  const lossPct = sent ? (sent-recv)/sent*100 : 0;
+
+  $('p50').textContent = pool.length ? q(.5).toFixed(1) : '–';
+  $('p90').textContent = pool.length ? q(.9).toFixed(1) : '–';
+  $('p99').textContent = pool.length ? q(.99).toFixed(1) : '–';
+  $('loss').textContent = lossPct.toFixed(2);
+  $('loss').className = 'v' + (lossPct > 1 ? ' bad' : '');
+  $('bursts').textContent = bursts;
+  $('bursts').className = 'v' + (bursts ? ' bad' : '');
+
+  const win = sel ? 'custom' : (document.querySelector('.rng button[data-m].on')?.textContent || minutes + 'm');
+  $('conclusion').textContent = (t.down ? '🔴 ' : '🟢 ') + `${t.name}: ${win} P99 ${pool.length ? q(.99).toFixed(1) : '–'} ms · loss ${lossPct.toFixed(2)}% · ${bursts} bursts`;
+
+  const phos = cssv('--phos');
+  chart.setOption({
+    animation: false,
+    grid: { left: 52, right: 46, top: 18, bottom: 42 },
+    xAxis: { type: 'time', axisLine: { lineStyle: { color: cssv('--grid-axis') } },
+             axisLabel: { color: cssv('--dim'), fontSize: 10,
+               formatter: v => {
+                 const d = new Date(v);
+                 const p = n => String(n).padStart(2, '0');
+                 // 长窗口显示日期,短窗口显示时刻;跨天时两行都给
+                 const span = sel ? (sel.to - sel.from) : minutes * 60;
+                 if (span > 86400) return `${p(d.getMonth()+1)}-${p(d.getDate())}`;
+                 if (span > 21600) return `${p(d.getMonth()+1)}-${p(d.getDate())}\n${p(d.getHours())}:${p(d.getMinutes())}`;
+                 return `${p(d.getHours())}:${p(d.getMinutes())}`;
+               } },
+             splitLine: { lineStyle: { color: cssv('--grid-split') } },
+             axisPointer: { show: true, snap: false,
+               lineStyle: { color: cssv('--dim'), opacity: .45 },
+               label: { show: true, backgroundColor: cssv('--panel'), color: cssv('--ink'),
+                        borderColor: cssv('--line'), borderWidth: 1, fontFamily: 'monospace', fontSize: 10,
+                        formatter: p => new Date(p.value).toLocaleTimeString() } } },
+    yAxis: [
+      { type: 'value', name: 'RTT ms', nameTextStyle: { color: cssv('--dim'), fontSize: 10 },
+        axisLabel: { color: cssv('--dim'), fontSize: 10 }, splitLine: { lineStyle: { color: cssv('--grid-split') } } },
+      { type: 'value', max: 100, show: false }
+    ],
+    tooltip: { trigger: 'axis',
+      backgroundColor: cssv('--panel'), borderColor: cssv('--line'),
+      textStyle: { color: cssv('--ink'), fontSize: 11, fontFamily: 'monospace' },
+      formatter: params => {
+        const ts = params[0] && params[0].axisValue;
+        const i = roundInfo[ts];
+        if (!i) return '';
+        let html = `<b>${new Date(+ts).toLocaleString()}</b>`;
+        html += `<br>rtt min/avg/max/mdev = ${i.lo.toFixed(3)}/${i.avg.toFixed(3)}/${i.hi.toFixed(3)}/${i.mdev.toFixed(3)} ms`;
+        html += `<br>median <b>${i.med.toFixed(1)} ms</b> · ${i.n} samples`;
+        html += `<br><span style="color:${i.lp > 0 ? cssv('--alert') : cssv('--dim')}">loss <b>${i.lp.toFixed(0)}%</b> (${i.lost}/${i.s})</span>`;
+        if (i.b) html += ` <span style="color:${cssv('--alert')}">· ◆ burst z=${i.z ? i.z.toFixed(2) : '—'}</span>`;
+        return html;
+      } },
+    // 荧光束渐变:贴线的样本 = 炽亮核心,散开的样本渐冷渐暗
+    visualMap: { show: false, type: 'continuous', dimension: 2, min: 0, max: 0.5,
+      seriesIndex: 0,
+      inRange: { color: [cssv('--smoke-hot'), cssv('--smoke-mid'), cssv('--smoke-cool')],
+                 opacity: [0.5, 0.10] } },
+    series: [
+      { type: 'scatter', data: smoke, symbolSize: 2.2, silent: true, large: true },
+      { type: 'line', data: median, showSymbol: false, silent: true, z: 4,
+        lineStyle: { color: phos, width: 7, opacity: 0.10 } },
+      { type: 'line', data: median, showSymbol: false,
+        lineStyle: { color: phos, width: 1.6, shadowColor: phos, shadowBlur: +cssv('--glow') * 2 }, z: 5 },
+      { type: 'bar', yAxisIndex: 1, data: lossBars, barMaxWidth: 3,
+        itemStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1,
+          [{ offset: 0, color: cssv('--alert') }, { offset: 1, color: cssv('--lossbar') }]) } },
+      { type: 'scatter', yAxisIndex: 1, data: burstPts, symbol: 'diamond',
+        symbolSize: 9, itemStyle: { color: cssv('--alert') }, z: 6,
+        tooltip: { formatter: p => `◆ z-score ${p.value[2] ? p.value[2].toFixed(2) : '—'} · loss ${p.value[1].toFixed(0)}% (${p.value[3]}/${p.value[4]})` } }
+    ]
+  }, true);
+}
+
+
+document.querySelectorAll('.rng button[data-m]').forEach(b => b.onclick = () => {
+  sel = null; $('selReset').style.display = 'none';
+  $('customFrom').value = ''; $('customTo').value = '';
+  document.querySelectorAll('.rng button[data-m]').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  minutes = +b.dataset.m;
+  render();
+});
+$('selReset').onclick = () => { sel = null; $('selReset').style.display = 'none'; render(); };
+$('customGo').onclick = () => {
+  const fv = $('customFrom').value, tv = $('customTo').value;
+  if (!fv || !tv) return;
+  const from = Math.floor(new Date(fv).getTime() / 1000);
+  const to = Math.floor(new Date(tv).getTime() / 1000);
+  if (to <= from) return;
+  document.querySelectorAll('.rng button[data-m]').forEach(x => x.classList.remove('on'));
+  minutes = 0;
+  sel = { from, to };
+  $('selReset').style.display = '';
+  render();
+};
+document.querySelectorAll('#tfilter button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#tfilter button').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  typeFilter = b.dataset.t;
+  render();
+});
+
+// 版本号显示在赞助栏标题;保留期决定哪些时间窗有意义
+fetch('/api/version').then(r => r.json()).then(d => {
+  const el = $('ver');
+  if (el && d.version) el.textContent = 'v' + String(d.version).replace(/^v/, '');
+  const keep = (d.retention_days || 0) * 1440;
+  if (keep > 0) {
+    document.querySelectorAll('.rng button[data-m]').forEach(b => {
+      if (+b.dataset.m > keep) b.style.display = 'none';
+    });
+  }
+}).catch(() => {});
+
+render();
+setInterval(() => { if (!rendering) render(); }, 60000); // 慢查询进行中时跳过本次自动刷新
+// Long windows: smoke is a hot-data privilege — beyond 24h you get the
+
+$('themeBtn').onclick = () => {
+  theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+  localStorage.setItem('pp_theme', theme);
+  applyTheme();
+  render();
+};
+window.addEventListener('resize', () => chart && chart.resize());
+</script>
+</body>
+</html>

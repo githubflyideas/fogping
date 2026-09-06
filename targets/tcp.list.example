@@ -1,0 +1,3 @@
+# TCP targets — host:port per line, restart to apply. Copy to tcp.list.
+10.0.0.5:443     API-Gateway   interval=30
+203.0.113.20:22  Backup-SSH    pace=slow
