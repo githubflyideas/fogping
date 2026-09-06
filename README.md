@@ -4,14 +4,22 @@ Just scp and run
 
 fogping is the SQLite build of the smoke-graph probe: same oscilloscope UI, same
 zero-config target lists, but rounds land in an embedded SQLite file with
-in-process rollup and retention. Its sibling [fogping](https://github.com/githubflyideas/fogping)
+in-process rollup and retention. Its sibling [pingping](https://github.com/githubflyideas/pingping)
 keeps the plain-JSONL storage.
 
 ```bash
-git clone https://github.com/githubflyideas/fogping.git
-cd fogping
-CGO_ENABLED=1 go build -trimpath -ldflags "-s -w" -o fogping .
+mkdir -p /home/fogping && cd /home/fogping
+
+wget https://github.com/githubflyideas/fogping/releases/download/v1.0.0/fogping-v1.0.0-linux-amd64.tar.gz
+tar -zxvf fogping-v1.0.0-linux-amd64.tar.gz
 ./fogping user=admin passwd=admin
+```
+
+Or build it yourself (cgo required):
+
+```bash
+git clone https://github.com/githubflyideas/fogping.git && cd fogping
+CGO_ENABLED=1 go build -trimpath -ldflags "-s -w" -o fogping .
 ```
 Open http://localhost:8518 and watch your first puff of network smoke
 
@@ -20,8 +28,8 @@ Storage is SQLite (`data/fogping.db`); history is kept for 40 days by default
 to cron.
 
 Build note: SQLite goes through `mattn/go-sqlite3`, so cgo is required and
-linux/amd64 is the supported target. `.goreleaser.yaml` builds a statically
-linked tarball if you ever push a `v*` tag.
+linux/amd64 is the only released target. The published tarball is statically
+linked — it does not depend on the build host's glibc.
 
 -----------------------------------------------------------
 Add target host
