@@ -21,7 +21,8 @@ func main() {
 	days := flag.Int("days", 40, "days of history to keep; UI hides windows beyond this")
 	edit := flag.Bool("edit", false, "allow adding/editing/deleting targets from the web UI (default: read-only)")
 	showVer := flag.Bool("version", false, "print version")
-	flag.Parse()
+	flagArgs, authArgs := splitArgs(os.Args[1:])
+	flag.CommandLine.Parse(flagArgs)
 	if *showVer {
 		fmt.Println("fogping", version)
 		return
@@ -31,7 +32,7 @@ func main() {
 	if *days > 0 {
 		cfg.RetentionDays = *days
 	}
-	users, err := parseAuthArgs(flag.Args())
+	users, err := parseAuthArgs(append(authArgs, flag.Args()...))
 	if err != nil {
 		log.Fatalf("bad auth args: %v", err)
 	}
@@ -99,6 +100,21 @@ func main() {
 		log.Printf("close: %v", err)
 	}
 	log.Printf("fogping shut down")
+}
+
+// splitArgs lets user=/passwd= and --flags come in any order. Go's flag package
+// stops at the first non-flag argument, so `fogping user=a passwd=b --edit` would
+// otherwise treat --edit as a stray positional. key=value words go to auth; flags
+// and bare values (`--days 300`) stay with the flags.
+func splitArgs(args []string) (flags, auth []string) {
+	for _, a := range args {
+		if !strings.HasPrefix(a, "-") && strings.Contains(a, "=") {
+			auth = append(auth, a)
+		} else {
+			flags = append(flags, a)
+		}
+	}
+	return flags, auth
 }
 
 // parseAuthArgs parses trailing "user=a,b passwd=x,y" arguments into a cred map.

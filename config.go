@@ -45,10 +45,10 @@ type TargetCfg struct {
 }
 
 type ProbeCfg struct {
-	IntervalSec int `json:"interval_sec"`
-	Packets     int `json:"packets"`
-	GapMs       int `json:"gap_ms"`
-	TimeoutMs   int `json:"timeout_ms"`
+	IntervalSec int
+	Packets     int
+	GapMs       int
+	TimeoutMs   int
 }
 
 // normalizeTarget is the single validation gate: web CRUD and list import both

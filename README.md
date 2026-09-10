@@ -2,80 +2,382 @@ A smokeping-like network tool
 -----One binary file-----
 Just scp and run
 
-fogping is the SQLite build of the smoke-graph probe: same oscilloscope UI, same
-zero-config target lists, but rounds land in an embedded SQLite file with
-in-process rollup and retention. Its sibling [pingping](https://github.com/githubflyideas/pingping)
-keeps the plain-JSONL storage.
+fogping draws SmokePing-style smoke graphs of latency and packet loss, from one
+static Go binary with an embedded SQLite database, a built-in web UI and login.
+No Perl, no RRDtool, no cron, no web server, no config file.
+
+## Quick start
 
 ```bash
-mkdir -p /home/fogping && cd /home/fogping
-
+mkdir -p ~/fogping && cd ~/fogping
 wget https://github.com/githubflyideas/fogping/releases/download/v1.1.0/fogping-v1.1.0-linux-amd64.tar.gz
-tar -zxvf fogping-v1.1.0-linux-amd64.tar.gz
-./fogping user=admin passwd=admin
+tar -xzf fogping-v1.1.0-linux-amd64.tar.gz
+./fogping --edit user=admin passwd=change-me
 ```
 
-Or build it yourself (cgo required):
+Open `http://<server>:8518`, log in, click **✎ targets** and add the hosts you
+want to watch. A demo target (www.google.com) is already there so the very first
+start shows smoke. Once your targets are in, restart without `--edit`: the UI
+becomes read-only again.
+
+The rest of this page covers each step in detail.
+
+## Contents
+
+- [Requirements](#requirements)
+- [Install](#install)
+- [Allow ICMP (ping) without root](#allow-icmp-ping-without-root)
+- [First start](#first-start)
+- [Command-line reference](#command-line-reference)
+- [Managing targets](#managing-targets)
+- [Run as a systemd service](#run-as-a-systemd-service)
+- [Behind a reverse proxy](#behind-a-reverse-proxy)
+- [Data, retention and backup](#data-retention-and-backup)
+- [Reading the chart](#reading-the-chart)
+- [Upgrading](#upgrading)
+- [Troubleshooting](#troubleshooting)
+- [Build from source](#build-from-source)
+
+## Requirements
+
+- Linux on x86-64. The release binary is statically linked, so the distribution
+  and its glibc version do not matter.
+- For PING targets: permission to send ICMP (see [below](#allow-icmp-ping-without-root)).
+  TCP targets need no special permission.
+- TCP port 8518 reachable from your browser — or `--localhost` plus a reverse proxy.
+  The port is fixed at 8518.
+- Nothing else: no database server, no runtime, no web server.
+
+## Install
 
 ```bash
-git clone https://github.com/githubflyideas/fogping.git && cd fogping
-CGO_ENABLED=1 go build -trimpath -ldflags "-s -w" -o fogping .
+sudo mkdir -p /opt/fogping && sudo chown "$USER": /opt/fogping && cd /opt/fogping
+wget https://github.com/githubflyideas/fogping/releases/download/v1.1.0/fogping-v1.1.0-linux-amd64.tar.gz
+wget https://github.com/githubflyideas/fogping/releases/download/v1.1.0/SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS     # expect: fogping-v1.1.0-linux-amd64.tar.gz: OK
+tar -xzf fogping-v1.1.0-linux-amd64.tar.gz
+./fogping --version
 ```
-Open http://localhost:8518 and watch your first puff of network smoke
 
-Storage is SQLite (`data/fogping.db`); history is kept for 40 days by default
-(`--days=300` for longer). Rollup and pruning run in-process — there is nothing
-to cron.
+The tarball contains only `fogping` and `LICENSE`. Everything fogping writes goes
+into two directories it creates in the directory you start it from: `data/` and
+`targets/` — so that directory must be writable by the user fogping runs as.
+(The systemd section below hands it to a dedicated user.)
 
-Build note: SQLite goes through `mattn/go-sqlite3`, so cgo is required and
-linux/amd64 is the only released target. The published tarball is statically
-linked — it does not depend on the build host's glibc.
+## Allow ICMP (ping) without root
 
------------------------------------------------------------
-Targets
--------
-Targets live in the SQLite database. The web UI is read-only by default; start with
-`--edit` to add, edit and delete targets from the browser, then restart without it:
+fogping first tries an unprivileged ICMP socket and falls back to a raw socket.
+Either one needs a permission. Pick one:
+
+**A. Unprivileged ICMP (recommended).** Many distributions already enable it; check:
 
 ```bash
-./fogping --edit user=admin passwd=admin     # editable (needs a login, or --localhost)
-./fogping user=admin passwd=admin            # everyday: read-only
+sysctl net.ipv4.ping_group_range
+# "0 2147483647" -> already allowed for everyone, nothing to do
+# "1 0"          -> disabled; enable it permanently:
+echo 'net.ipv4.ping_group_range = 0 2147483647' | sudo tee /etc/sysctl.d/99-fogping.conf
+sudo sysctl --system
 ```
 
-`targets/` is an import inbox for scripts and first-time setup. Drop a list there and
-it is imported within a few seconds, then archived as `*.imported`:
-```
- echo "1.2.3.4 myhost pace=fast"    >> targets/ping.list
- echo "10.0.0.5:443 ads-api"        >> targets/tcp.list
-```
-Import upserts by name (an existing target of the same name takes the new settings).
-A file with a bad line is imported not at all and parked as `*.rejected`. Upgrading
-from an older build: your existing `ping.list`/`tcp.list` are imported on first
-start, and history carries over because it is keyed by target name.
+**B. Give the binary `cap_net_raw`.** Repeat after every upgrade, because a new
+binary does not inherit the capability:
 
-Deleting a target stops probing but keeps its history until retention ages it out;
-re-adding the same name picks the history back up. Renaming keeps history.
+```bash
+sudo setcap cap_net_raw+ep /opt/fogping/fogping
+```
 
-Run it as a service
+**C. Run as root.** Works, but not needed.
+
+Without any of these, PING targets show 100% loss and every round logs a probe
+error about the ICMP socket that mentions `ping_group_range` and `cap_net_raw`.
+
+## First start
+
+Always start fogping from its install directory: `data/` and `targets/` are
+relative to the current working directory.
+
+```bash
+cd /opt/fogping
+./fogping --edit user=admin passwd=change-me
+```
+
+On a brand-new install it creates `data/fogping.db`, creates `targets/`, adds the
+demo target and starts probing. The log looks like this:
+
+```
+new database — seeded a demo target (www.google.com)
+[Demo] probing www.google.com
+fogping 1.1.0 up · 1 targets · targets editable in the web UI · listening on 0.0.0.0:8518 · data in ./data · 40-day retention
+➜  open http://localhost:8518 for the smoke graph
+web login enabled for 1 user(s)
+```
+
+Open `http://<server>:8518` and log in. The first round is sent immediately;
+after that every target is probed on its own schedule
+(see [pace](#pace-and-interval)). Stop with Ctrl-C — pending data is flushed
+before exit.
+
+## Command-line reference
+
+```
+./fogping [--edit] [--localhost] [--days=N] [user=NAMES passwd=PASSWORDS]
+./fogping --version
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `user=a,b passwd=x,y` | none | Turns on the login page. Names and passwords are comma-separated and paired by position (`a`/`x`, `b`/`y`). Without them the UI is open to anyone who can reach the port. |
+| `--edit` | off | Allows adding, editing and deleting targets in the web UI. Refuses to start unless a login is set or `--localhost` is used, because an open writable UI would let anyone make this host ping or connect to arbitrary addresses. |
+| `--localhost` | off | Listen on `127.0.0.1:8518` instead of `0.0.0.0:8518`. Use it behind a reverse proxy. |
+| `--days=N` | 40 | Days of hourly history to keep. Raw samples are always kept for 2 days. The UI hides range buttons longer than this. |
+| `--version` | | Print the version and exit. |
+
+Put the `--flags` first, then `user=`/`passwd=`. Quote passwords that contain shell characters
+(`passwd='p@ss;word'`). Logins last 7 days; sessions are held in memory, so every
+restart logs everyone out.
+
+Note that anything on the command line — including the password — is visible to
+other local users (`ps`, `systemctl show`). If that matters on your host, run with
+`--localhost` and let a reverse proxy handle authentication.
+
+## Managing targets
+
+Targets are stored in the SQLite database. There are two ways to change them.
+
+### In the web UI (`--edit`)
+
+1. Start with `--edit` (and a login): `./fogping --edit user=admin passwd=change-me`
+2. Click **✎ targets** in the top right.
+3. Add a target:
+
+   | Field | Notes |
+   |---|---|
+   | Type | **PING** (ICMP echo, IPv4) or **TCP** (time to complete a TCP connect). |
+   | Host | Hostname or IP address. Hostnames are resolved every round. |
+   | Port | TCP only, 1–65535. |
+   | Name | Optional; defaults to the host (`host:port` for TCP). Up to 64 characters, must be unique. This is what the chart buttons show. |
+   | Pace | `normal` (default), `fast` or `slow` — see below. |
+   | Interval | Optional, in seconds (1–86400). Overrides the pace's interval. |
+
+4. **edit** changes a target in place; **delete** stops probing it.
+
+Changes take effect immediately, without a restart. When you are done, restart
+without `--edit` to make the UI read-only again.
+
+- **Deleting keeps history.** The data stays until retention ages it out. Adding a
+  target with the same name again brings its history back.
+- **Renaming keeps history.** Renaming onto the name of a deleted target is refused,
+  so two histories are never merged by accident.
+
+### Pace and interval
+
+| Pace | Probed every | Packets per round |
+|---|---|---|
+| `fast` | 15 s | 30 |
+| `normal` | 60 s | 20 |
+| `slow` | 300 s | 20 |
+
+Packets in a round are sent 50 ms apart; replies later than 1 s count as lost.
+A custom interval changes how often a round runs, not how many packets it sends.
+
+### From the shell (the `targets/` inbox)
+
+For scripts, provisioning, or adding many targets at once, drop a list file into
+`targets/`. It works with or without `--edit` and while fogping is running:
+
+```bash
+cd /opt/fogping
+echo "1.2.3.4       Tokyo-Edge   pace=fast"   >> targets/ping.list
+echo "10.0.0.5:443  API-Gateway  interval=30" >> targets/tcp.list
+```
+
+One target per line: `host[:port]  [name]  [pace=fast|slow]  [interval=SECONDS]`.
+`ping.list` takes hosts, `tcp.list` takes `host:port`. Names may contain spaces.
+Lines starting with `#` are ignored.
+
+Within 3 seconds fogping reads the file and:
+
+- **all lines valid** → imports them and appends the file to `targets/ping.list.imported`
+  (a log of what was imported). A target whose name already exists takes the new settings.
+- **any line invalid** → imports nothing, renames the file to `ping.list.rejected`
+  and logs the line number. Fix it and rename it back to `ping.list`.
+
+The inbox only adds and updates. Removing a line from a file does nothing —
+delete targets in the web UI.
+
+## Run as a systemd service
+
+Create a dedicated user and hand it the install directory:
+
+```bash
+sudo useradd --system --home-dir /opt/fogping --shell /usr/sbin/nologin fogping
+sudo chown -R fogping: /opt/fogping
+```
+
+`/etc/systemd/system/fogping.service`:
+
 ```ini
-# /etc/systemd/system/fogping.service
 [Unit]
 Description=fogping link-quality probe
 After=network-online.target
+Wants=network-online.target
 
 [Service]
+User=fogping
 WorkingDirectory=/opt/fogping
-ExecStart=/opt/fogping/fogping user=admin passwd=admin
+ExecStart=/opt/fogping/fogping user=admin passwd=change-me
+# Only if you chose option B for ICMP and not ping_group_range:
+# AmbientCapabilities=CAP_NET_RAW
 Restart=always
 RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
 ```
+
 ```bash
-sysctl -w net.ipv4.ping_group_range="0 2147483647"   # unprivileged ICMP, no root needed
-systemctl enable --now fogping
+sudo chmod 600 /etc/systemd/system/fogping.service   # it contains the password
+sudo systemctl daemon-reload
+sudo systemctl enable --now fogping
+journalctl -u fogping -f                             # watch the log
 ```
+
+To edit targets on a running service, stop it, run once in the foreground with
+`--edit` as the same user, then start it again:
+
+```bash
+sudo systemctl stop fogping
+cd /opt/fogping && sudo -u fogping ./fogping --edit user=admin passwd=change-me
+# ... edit in the browser, then Ctrl-C
+sudo systemctl start fogping
+```
+
+Or, without stopping anything, use the inbox:
+
+```bash
+echo "8.8.8.8 Google-DNS" | sudo -u fogping tee -a /opt/fogping/targets/ping.list
+```
+
+If you are not using a reverse proxy, open the port:
+`sudo ufw allow 8518/tcp` or `sudo firewall-cmd --add-port=8518/tcp --permanent && sudo firewall-cmd --reload`.
+
+## Behind a reverse proxy
+
+Run fogping with `--localhost` and let the proxy provide TLS (and, if you like,
+authentication instead of fogping's own login).
+
+Caddy:
+
+```
+fogping.example.com {
+    reverse_proxy 127.0.0.1:8518
+}
+```
+
+nginx:
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:8518;
+    proxy_set_header Host $host;   # required for --edit, see below
+}
+```
+
+The target editor refuses requests whose `Origin` does not match the `Host` they
+arrive with (cross-site request protection). Caddy passes the original `Host`
+through by default; nginx does not unless you set `proxy_set_header Host $host`.
+Without it, saving a target fails with `cross-origin request refused`.
+
+## Data, retention and backup
+
+Everything lives in `data/fogping.db` (plus `-wal` and `-shm` files while it runs):
+targets, raw rounds and hourly buckets.
+
+| Tier | What | Kept | Used for views |
+|---|---|---|---|
+| Raw | every sample of every round | 2 days | up to 1 day |
+| Hourly | per hour: min / p50 / p90 / p99 / max, loss, bursts | `--days` (40) | 3 days and longer |
+
+Hourly buckets are computed in-process: on start for everything raw still holds,
+then every 5 minutes. Old data is removed every night at 00:05 local time, and the
+file is compacted when there is free space to hand back. There is nothing to cron.
+
+Size, roughly: ~0.35 MB per `normal` target and ~2 MB per `fast` target for the
+two days of raw samples, plus a few KB per target per day of hourly history.
+
+Backup — while running, with the `sqlite3` tool:
+
+```bash
+sqlite3 /opt/fogping/data/fogping.db ".backup /backup/fogping-$(date +%F).db"
+```
+
+or stop the service and copy the whole `data/` directory. Do not copy
+`fogping.db` alone while fogping is running.
+
+To start over from scratch: stop fogping and delete `data/`.
+
+## Reading the chart
+
+- **Line** — the median RTT. **Smoke** — the spread around it: on views up to
+  1 day every individual sample, beyond that each hour's min/p50/p90/p99/max.
+  Tight smoke is a steady link; tall smoke is jitter.
+- **Red bars** — packet loss (right axis, %).
+- **◆** — a loss burst: loss far above the target's own recent baseline
+  (robust z-score ≥ 3.5). There are no thresholds to configure.
+- **P50 / P90 / P99** under the chart are computed from all samples in the window.
+  On views of 3 days and longer they are marked `≈`: exact window percentiles
+  cannot be rebuilt from hourly ones, so these are the typical hour's values.
+- For an exact range, fill in the two date fields and press **Go**;
+  **✕ selection** returns to the preset windows.
+
+## Upgrading
+
+```bash
+cd /opt/fogping
+sudo systemctl stop fogping
+sudo cp -a data data.bak                 # optional, lets you roll back
+sudo wget https://github.com/githubflyideas/fogping/releases/download/vX.Y.Z/fogping-vX.Y.Z-linux-amd64.tar.gz
+sudo tar -xzf fogping-vX.Y.Z-linux-amd64.tar.gz    # replaces the binary only
+sudo setcap cap_net_raw+ep fogping       # only if you used ICMP option B
+sudo systemctl start fogping
+```
+
+Schema changes are applied automatically on start.
+
+**From 1.0.x:** your `targets/ping.list` and `tcp.list` are imported on the first
+start and archived as `*.imported`; history carries over. From then on targets are
+managed in the web UI (`--edit`); removing a line from a list file no longer
+removes a target. The old daily table is dropped (hourly data covers the same span).
+
+## Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| PING targets at 100% loss, log shows an ICMP socket error | ICMP permission missing — see [Allow ICMP](#allow-icmp-ping-without-root). |
+| `--edit needs a login (user=... passwd=...) or --localhost` | By design: add a login, or bind to localhost behind a proxy. |
+| Saving a target says `read-only: restart fogping with --edit` | fogping was started without `--edit`. |
+| Saving a target says `cross-origin request refused` | Your proxy does not forward `Host` — see [reverse proxy](#behind-a-reverse-proxy). |
+| `bind: address already in use` | Another fogping is already running (e.g. the service, while you start `--edit` by hand). |
+| A list file turned into `*.rejected` | One line is invalid; the log names the line. Fix it, rename it back. |
+| Everyone was logged out | fogping restarted; sessions are kept in memory. |
+| `data/` or `targets/` appeared in an unexpected place | fogping was started from another directory; `cd` into the install directory or set `WorkingDirectory=`. |
+| `store init failed: ... permission denied` | The start directory is not writable by the user running fogping — `chown` it. |
+
+## Build from source
+
+Requires Go 1.22+ and a C compiler (SQLite is linked through cgo):
+
+```bash
+git clone https://github.com/githubflyideas/fogping.git && cd fogping
+CGO_ENABLED=1 go build -trimpath -ldflags "-s -w" -o fogping .
+go test ./...
+```
+
+Only linux/amd64 is released: cgo rules out cross-compiling the other platforms
+from the release runner. A local build links glibc dynamically; the release
+tarball is linked statically.
+
+-----------------------------------------------------------
 
 🌐 [English](#english) · [中文](#中文) · [Español](#español) · [Français](#français) · [Português](#português) · [Deutsch](#deutsch) · [Русский](#русский) · [日本語](#日本語) · [한국어](#한국어) · [Bahasa Indonesia](#bahasa-indonesia) · [Tiếng Việt](#tiếng-việt) · [العربية](#العربية) · [हिन्दी](#हिन्दी) · [বাংলা](#বাংলা) · [اردو](#اردو) · [Türkçe](#türkçe) · [ไทย](#ไทย)
 ![window: a 40-minute congestion event — smoke spreads, bursts marked ◆](docs/hero15.png)
@@ -93,7 +395,7 @@ Single binary
 No Docker
 No make. Just scp and run.
 Embedded SQLite — one file, no server, no setup
-Plain text configuration. Edit targets with your favorite editor—or even a single echo command.
+Targets are managed in the web UI (start with --edit), or added with a single echo command.
 
 Download it, extract it, run ./fogping, then go grab a coffee.
 
@@ -102,7 +404,7 @@ When you're back, open http://localhost:8518 and watch your first puff of networ
 ## 中文
 
 FogPing 是一款轻量级的网络链路质量绘图工具。它或许没有 Smokeping 那么强大、成熟，但它足够轻巧。
-单一可执行文件（Single Binary），下载即可使用，无需 Docker、无需 Root 权限、无需外部数据库（内置 SQLite，单文件落盘）。使用纯文本配置文件，可用任何文本编辑器修改监控目标，甚至一行 echo 指令即可完成。
+单一可执行文件（Single Binary），下载即可使用，无需 Docker、无需 Root 权限、无需外部数据库（内置 SQLite，单文件落盘）。监控目标存放在内置 SQLite 中，在 Web 界面里增删改（以 --edit 启动），也可以用一行 echo 指令导入。
 下载、解压、运行 ./fogping，然后去泡杯咖啡吧。回来打开 http://localhost:8518 看看你的第一缕网络烟雾！
 
 -------------------------------------------------------------------------------------------------
@@ -113,7 +415,7 @@ FogPing 是一款輕量級的網路鏈路品質繪圖工具。
 無需 Docker
 無需 Root 權限
 內建 SQLite，單一檔案落盤
-使用純文字設定檔，可用任何文字編輯器修改監控目標，甚至一行 echo 指令即可完成。
+監控目標存放在內建 SQLite 中，可在 Web 介面中新增、修改、刪除（以 --edit 啟動），也可以用一行 echo 指令匯入。
 下載、解壓、執行 ./fogping，然後去泡杯咖啡吧。回來打開 http://localhost:8518 看看你的第一縷網路煙霧！
 
 
@@ -127,7 +429,7 @@ Un único ejecutable
 Sin Docker
 Sin make. Solo copia con scp y ejecútalo.
 SQLite embebido: un solo archivo, sin servidor
-Configuración en texto plano. Puedes editar los objetivos con cualquier editor, o incluso con un simple comando echo.
+Los objetivos se gestionan desde la interfaz web (arranca con --edit), o se añaden con un simple comando echo.
 
 Descárgalo, descomprímelo y ejecuta ./fogping. Luego ve a prepararte un café.
 
@@ -143,7 +445,7 @@ Un seul exécutable
 Aucun Docker
 Pas de make. Un simple scp, puis exécutez-le.
 SQLite embarqué : un seul fichier, aucun serveur
-Configuration en texte brut. Modifiez les cibles avec votre éditeur préféré, ou même avec une simple commande echo.
+Les cibles se gèrent depuis l'interface web (lancez avec --edit), ou s'ajoutent avec une simple commande echo.
 
 Téléchargez-le, décompressez-le et lancez ./fogping.
 
@@ -161,7 +463,7 @@ Binário único
 Sem Docker
 Sem make. Basta copiar com scp e executar.
 SQLite embutido: um único ficheiro, sem servidor
-Configuração em texto simples. Edite os alvos com qualquer editor ou até mesmo com um único comando echo.
+Os alvos são geridos na interface web (inicie com --edit) ou adicionados com um único comando echo.
 
 Baixe, extraia e execute ./fogping.
 
@@ -179,7 +481,7 @@ Eine einzige ausführbare Datei
 Kein Docker
 Kein make. Einfach per scp kopieren und starten.
 Eingebettetes SQLite — eine Datei, kein Server
-Konfiguration als Textdatei. Ziele lassen sich mit jedem Editor oder sogar mit einem einzigen echo-Befehl bearbeiten.
+Ziele werden in der Weboberfläche verwaltet (Start mit --edit) – oder mit einem einzigen echo-Befehl hinzugefügt.
 
 Herunterladen, entpacken und ./fogping starten.
 
@@ -197,7 +499,7 @@ FogPing — лёгкий инструмент для визуализации к
 Без Docker
 Без make. Просто скопируйте через scp и запустите.
 Встроенный SQLite — один файл, без сервера
-Текстовый файл конфигурации. Цели можно редактировать любым редактором или даже одной командой echo.
+Цели управляются в веб-интерфейсе (запуск с --edit) или добавляются одной командой echo.
 
 Скачайте, распакуйте и запустите ./fogping.
 
@@ -216,7 +518,7 @@ Smokeping ほど高機能ではありませんが、その代わり驚くほど�
 Docker 不要
 make 不要。scp して実行するだけ。
 SQLite 内蔵。ファイル 1 つ、サーバも設定も不要
-設定ファイルはプレーンテキスト。お好みのエディタで編集でき、echo 一行でも監視対象を追加できます。
+監視対象は Web UI で追加・編集・削除できます（--edit で起動）。echo 一行で追加することもできます。
 
 ダウンロードして展開し、./fogping を実行したら、コーヒーでも淹れましょう。
 
@@ -232,7 +534,7 @@ Smokeping만큼 강력하지는 않지만, 놀라울 정도로 가볍습니다.
 Docker 불필요
 make 불필요. scp로 복사한 뒤 바로 실행.
 내장 SQLite — 파일 하나, 서버 불필요
-설정은 일반 텍스트 파일입니다. 원하는 편집기로 수정하거나 echo 한 줄만으로도 모니터링 대상을 추가할 수 있습니다.
+모니터링 대상은 웹 UI에서 관리합니다(--edit으로 실행). echo 한 줄로 추가할 수도 있습니다.
 
 다운로드하고 압축을 푼 뒤 ./fogping을 실행하세요.
 
@@ -251,7 +553,7 @@ Satu berkas biner
 Tanpa Docker
 Tanpa make. Cukup salin dengan scp lalu jalankan.
 SQLite tertanam — satu berkas, tanpa server
-Konfigurasi berbentuk teks biasa. Edit target dengan editor favorit Anda, atau bahkan cukup dengan satu perintah echo.
+Target dikelola lewat antarmuka web (jalankan dengan --edit), atau ditambahkan dengan satu perintah echo.
 
 Unduh, ekstrak, lalu jalankan ./fogping.
 
@@ -269,7 +571,7 @@ Một tệp thực thi duy nhất
 Không cần Docker
 Không cần make. Chỉ cần scp rồi chạy.
 SQLite nhúng — một tệp duy nhất, không cần máy chủ
-Cấu hình bằng tệp văn bản thuần túy. Bạn có thể chỉnh sửa bằng bất kỳ trình soạn thảo nào, hoặc chỉ với một lệnh echo.
+Mục tiêu được quản lý trên giao diện web (khởi động với --edit), hoặc thêm bằng một lệnh echo.
 
 Tải về, giải nén và chạy ./fogping.
 
@@ -287,7 +589,7 @@ FogPing أداة خفيفة لعرض جودة اتصالات الشبكة.
 لا حاجة إلى Docker
 لا حاجة إلى make، فقط انسخه باستخدام scp ثم شغّله.
 قاعدة بيانات SQLite مدمجة — ملف واحد بلا خادم
-إعدادات بنص عادي، ويمكن تعديل أهداف المراقبة بأي محرر نصوص، أو حتى بأمر echo واحد.
+تُدار أهداف المراقبة من واجهة الويب (شغّله مع ‎--edit)، أو تُضاف بأمر echo واحد.
 
 نزّل البرنامج، فك الضغط، ثم شغّل ./fogping.
 
@@ -305,7 +607,7 @@ FogPing एक हल्का नेटवर्क लिंक गुणव�
 Docker की आवश्यकता नहीं
 make की आवश्यकता नहीं। बस scp करें और चलाएँ।
 अंतर्निहित SQLite — एक फ़ाइल, कोई सर्वर नहीं
-साधारण टेक्स्ट कॉन्फ़िगरेशन। अपनी पसंद के किसी भी संपादक से लक्ष्य बदलें, या केवल एक echo कमांड से।
+लक्ष्यों को वेब UI में प्रबंधित करें (--edit के साथ चलाएँ), या केवल एक echo कमांड से जोड़ें।
 
 डाउनलोड करें, अनज़िप करें और ./fogping चलाएँ।
 
@@ -323,7 +625,7 @@ FogPing একটি হালকা নেটওয়ার্ক সংযো
 Docker প্রয়োজন নেই
 make প্রয়োজন নেই। শুধু scp করে চালান।
 অন্তর্নির্মিত SQLite — একটিমাত্র ফাইল, কোনো সার্ভার নয়
-সাধারণ টেক্সট কনফিগারেশন। যেকোনো টেক্সট এডিটর, এমনকি একটি echo কমান্ড দিয়েও মনিটরিং লক্ষ্য পরিবর্তন করা যায়।
+মনিটরিং লক্ষ্যগুলো ওয়েব UI থেকে পরিচালনা করুন (--edit দিয়ে চালান), অথবা একটি echo কমান্ড দিয়ে যোগ করুন।
 
 ডাউনলোড করুন, আনজিপ করুন এবং ./fogping চালান।
 
@@ -341,7 +643,7 @@ FogPing نیٹ ورک لنک کے معیار کو دکھانے والا ایک �
 Docker کی ضرورت نہیں
 make کی ضرورت نہیں۔ صرف scp کریں اور چلائیں۔
 بلٹ اِن SQLite — ایک فائل، کوئی سرور نہیں
-سادہ ٹیکسٹ کنفیگریشن۔ کسی بھی ایڈیٹر یا صرف ایک echo کمانڈ سے مانیٹرنگ اہداف تبدیل کیے جا سکتے ہیں۔
+مانیٹرنگ اہداف ویب UI سے منظم کیے جاتے ہیں (‎--edit کے ساتھ چلائیں)، یا صرف ایک echo کمانڈ سے شامل کیے جا سکتے ہیں۔
 
 ڈاؤن لوڈ کریں، ان زپ کریں اور ./fogping چلائیں۔
 
@@ -359,7 +661,7 @@ Tek çalıştırılabilir dosya
 Docker gerekmez
 make gerekmez. scp ile kopyalayın ve çalıştırın.
 Gömülü SQLite — tek dosya, sunucu yok
-Düz metin yapılandırması. Hedefleri istediğiniz düzenleyiciyle, hatta tek bir echo komutuyla bile değiştirebilirsiniz.
+Hedefler web arayüzünden yönetilir (--edit ile başlatın) ya da tek bir echo komutuyla eklenir.
 
 İndirin, arşivi açın ve ./fogping çalıştırın.
 
@@ -377,7 +679,7 @@ FogPing เป็นเครื่องมือขนาดเล็กสำ
 ไม่ต้องใช้ Docker
 ไม่ต้องใช้ make เพียง scp ไฟล์แล้วใช้งานได้ทันที
 ใช้ SQLite ในตัว — ไฟล์เดียว ไม่ต้องติดตั้งเซิร์ฟเวอร์
-ใช้ไฟล์กำหนดค่าแบบข้อความธรรมดา สามารถแก้ไขเป้าหมายการตรวจสอบด้วยโปรแกรมแก้ไขข้อความใดก็ได้ หรือแม้แต่ใช้คำสั่ง echo เพียงบรรทัดเดียว
+จัดการเป้าหมายการตรวจสอบได้ผ่านหน้าเว็บ (เริ่มด้วย --edit) หรือเพิ่มด้วยคำสั่ง echo เพียงบรรทัดเดียว
 
 ดาวน์โหลด แตกไฟล์ แล้วรัน ./fogping
 
@@ -408,11 +710,9 @@ round, so the ◆ marks on the chart come straight from the store. Built-in Web 
 with native auth — read-only unless started with `--edit` — no Nginx, no Caddy, no
 external database. Targets are rows in the same SQLite file; there is no config file.
 
-Storage is the only thing that separates it from its sibling
-[pingping](https://github.com/githubflyideas/pingping), which writes plain JSONL
-and has no cgo dependency at all. Pick pingping if you want a pure-Go static
-binary and grep-able data files; pick fogping if you want indexed queries and
-in-process retention.
+Sibling project: [pingping](https://github.com/githubflyideas/pingping) — the same
+oscilloscope without cgo.
+
 
 ## License
 
