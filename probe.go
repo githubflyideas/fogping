@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strconv"
 	"syscall"
 	"time"
 )
@@ -51,7 +52,7 @@ func probeLoop(t TargetCfg, p ProbeCfg, store *Store, det *Detector, stop chan s
 		case "icmp":
 			r, err = icmpRound(t.Host, packets, gap, timeout)
 		case "tcp":
-			r = tcpRound(fmt.Sprintf("%s:%d", t.Host, t.Port), packets, gap, timeout)
+			r, err = tcpRound(t.Host, t.Port, packets, gap, timeout)
 		}
 		if err != nil {
 			log.Printf("[%s] probe error: %v", t.Name, err)
@@ -216,9 +217,19 @@ func resolveIPv4(host string) ([4]byte, error) {
 }
 
 // ---- TCP:connect 耗时即 RTT 近似 ----
+// Resolve once per round and dial the IP: Go doesn't cache DNS, so dialing a
+// hostname would add a lookup to every sample and measure the resolver, not the link.
 
-func tcpRound(addr string, packets int, gap, timeout time.Duration) Round {
+func tcpRound(host string, port, packets int, gap, timeout time.Duration) (Round, error) {
 	r := Round{T: time.Now().Unix(), S: packets}
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return r, err
+	}
+	if len(ips) == 0 {
+		return r, fmt.Errorf("%s: no address", host)
+	}
+	addr := net.JoinHostPort(ips[0].String(), strconv.Itoa(port))
 	for i := 0; i < packets; i++ {
 		t0 := time.Now()
 		c, err := net.DialTimeout("tcp", addr, timeout)
@@ -231,5 +242,5 @@ func tcpRound(addr string, packets int, gap, timeout time.Duration) Round {
 			time.Sleep(gap)
 		}
 	}
-	return r
+	return r, nil
 }

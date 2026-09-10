@@ -95,7 +95,10 @@ func main() {
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	<-sig
 	close(stop)
-	log.Printf("fogping shutting down")
+	if err := store.Close(); err != nil { // final flush; waits for in-flight queries
+		log.Printf("close: %v", err)
+	}
+	log.Printf("fogping shut down")
 }
 
 // parseAuthArgs parses trailing "user=a,b passwd=x,y" arguments into a cred map.
@@ -131,8 +134,10 @@ func parseAuthArgs(args []string) (map[string]string, error) {
 	return m, nil
 }
 
-// housekeeping: nightly rollup + retention at 00:05.
+// housekeeping: rollup on start and every 5 minutes; retention nightly at 00:05.
 func housekeeping(cfg *Config, store *Store, stop chan struct{}) {
+	sched := &rollupSched{hot: time.Duration(cfg.HotDays) * 24 * time.Hour}
+	sched.tick(store, time.Now())
 	tick := time.NewTicker(30 * time.Second)
 	defer tick.Stop()
 	last := ""
@@ -143,11 +148,10 @@ func housekeeping(cfg *Config, store *Store, stop chan struct{}) {
 		case <-tick.C:
 		}
 		now := time.Now()
-		day := now.Format("2006-01-02")
-		if now.Hour() == 0 && now.Minute() == 5 && last != day {
+		sched.tick(store, now)
+		if day := now.Format("2006-01-02"); now.Hour() == 0 && now.Minute() == 5 && last != day {
 			last = day
-			store.Rollup(time.Now().AddDate(0, 0, -2).Unix()) // 重算最近两天的聚合
-			store.Retention(cfg.HotDays, cfg.RetentionDays)
+			store.Retention(now, cfg.HotDays, cfg.RetentionDays)
 		}
 	}
 }

@@ -15,18 +15,18 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-// Storage is SQLite with three tiers. Raw rounds keep every sample for recent days;
-// hourly and daily rollups keep the shape (min/p50/p90/p99/max/loss/bursts) for much
-// longer. A query picks the tier that fits the window, so any span — an hour or a
-// year — comes back as at most a few thousand rows and the browser never chokes.
+// Storage is SQLite with two tiers. Raw rounds keep every sample for HotDays; the
+// hourly rollup keeps the shape (min/p50/p90/p99/max, loss, bursts) for the whole
+// retention window. Windows up to a day read raw rounds (real smoke); anything
+// longer reads hourly buckets — 300 days is 7200 rows, which the chart handles fine.
 //
-// Why not plain files anymore: reading 45 days of JSONL took ~40s and shipped
-// millions of points to the browser. The tiering is the same idea SmokePing gets
-// from RRD, expressed in SQL so the data stays inspectable and exportable.
+// There used to be a daily tier as well. It was kept exactly as long as the hourly
+// one, so it saved no disk, and deriving it from an unaligned window truncated its
+// buckets; it is dropped on startup (see NewStore).
 const (
 	ringCap    = 1440 // in-memory flight recorder, ~24h at 1/min
 	hourlyFrom = 24 * time.Hour
-	dailyFrom  = 30 * 24 * time.Hour
+	bucketSec  = 3600
 )
 
 type Store struct {
@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS rounds (
   PRIMARY KEY (target_id, t)
 ) WITHOUT ROWID;
 
--- Rollups. Same columns at both resolutions so the query path is identical.
+-- Hourly rollup. Percentile columns are NULL for a bucket in which every packet was lost.
 CREATE TABLE IF NOT EXISTS rounds_hourly (
   target_id INTEGER NOT NULL,
   t         INTEGER NOT NULL,
@@ -102,19 +102,20 @@ CREATE TABLE IF NOT EXISTS rounds_hourly (
   PRIMARY KEY (target_id, t)
 ) WITHOUT ROWID;
 
-CREATE TABLE IF NOT EXISTS rounds_daily (
-  target_id INTEGER NOT NULL,
-  t         INTEGER NOT NULL,
-  lo REAL, p50 REAL, p90 REAL, p99 REAL, hi REAL,
-  loss_pct REAL, bursts INTEGER, n INTEGER,
-  PRIMARY KEY (target_id, t)
-) WITHOUT ROWID;
 `
 	if _, err := db.Exec(schema); err != nil {
 		return nil, err
 	}
 	if err := migrateTargets(db); err != nil {
 		return nil, err
+	}
+	var hadDaily int
+	db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name='rounds_daily'`).Scan(&hadDaily)
+	if hadDaily > 0 {
+		if _, err := db.Exec(`DROP TABLE rounds_daily`); err != nil {
+			return nil, err
+		}
+		log.Printf("storage: dropped the daily rollup table (hourly covers the same span)")
 	}
 
 	s := &Store{
@@ -265,8 +266,7 @@ func (s *Store) flushLoop(stop <-chan struct{}) {
 	for {
 		select {
 		case <-stop:
-			s.Flush()
-			return
+			return // main calls Close, which does the final flush
 		case <-tick.C:
 			if err := s.Flush(); err != nil {
 				log.Printf("flush: %v", err)
@@ -334,19 +334,29 @@ func (s *Store) Recent(name string, since int64) []Round {
 	return append([]Round(nil), ring[i:]...)
 }
 
-// ReadRange picks a tier by window width. Under a day: raw samples, real smoke.
-// Up to a month: hourly rollups. Beyond: daily. Every path returns []Round, so
-// callers and the front end never learn which tier answered.
-func (s *Store) ReadRange(ctx context.Context, name string, from, to int64) []Round {
-	span := time.Duration(to-from) * time.Second
-	switch {
-	case span <= hourlyFrom:
-		return s.queryRaw(ctx, name, from, to)
-	case span <= dailyFrom:
-		return s.queryRollup(ctx, "rounds_hourly", name, from, to)
-	default:
-		return s.queryRollup(ctx, "rounds_daily", name, from, to)
+// Series is what /api/series returns. Raw rounds and hourly buckets are different
+// things — a bucket's five numbers are percentiles, not samples — so they travel in
+// different fields and the front end draws each honestly.
+type Series struct {
+	Tier    string   `json:"tier"` // "raw" | "hourly"
+	Rounds  []Round  `json:"rounds,omitempty"`
+	Buckets []Bucket `json:"buckets,omitempty"`
+}
+
+type Bucket struct {
+	T      int64     `json:"t"`
+	Q      []float64 `json:"q,omitempty"` // min,p50,p90,p99,max — absent when every packet was lost
+	Loss   float64   `json:"loss"`        // percent of packets, not rounds
+	N      int       `json:"n"`           // rounds in the bucket
+	Bursts int       `json:"bursts,omitempty"`
+}
+
+// ReadRange: up to a day, raw rounds; beyond, hourly buckets.
+func (s *Store) ReadRange(ctx context.Context, name string, from, to int64) Series {
+	if time.Duration(to-from)*time.Second <= hourlyFrom {
+		return Series{Tier: "raw", Rounds: s.queryRaw(ctx, name, from, to)}
 	}
+	return Series{Tier: "hourly", Buckets: s.queryHourly(ctx, name, from, to)}
 }
 
 func (s *Store) targetID(name string) (int64, bool) {
@@ -384,135 +394,157 @@ func (s *Store) queryRaw(ctx context.Context, name string, from, to int64) []Rou
 	return out
 }
 
-// queryRollup reshapes an aggregate row into a Round whose MS carries the five
-// shape values. The chart draws them exactly like raw samples — the smoke just
-// gets sparser the further back you look, which is what SmokePing does too.
-func (s *Store) queryRollup(ctx context.Context, table, name string, from, to int64) []Round {
+func (s *Store) queryHourly(ctx context.Context, name string, from, to int64) []Bucket {
 	id, ok := s.targetID(name)
 	if !ok {
-		return []Round{}
+		return []Bucket{}
 	}
+	// A bucket is stamped with its start, so widen by one bucket to keep the one
+	// that straddles `from`.
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT t,lo,p50,p90,p99,hi,loss_pct,bursts,n FROM `+table+`
-		  WHERE target_id=? AND t BETWEEN ? AND ? ORDER BY t`, id, from, to)
+		`SELECT t,lo,p50,p90,p99,hi,loss_pct,bursts,n FROM rounds_hourly
+		  WHERE target_id=? AND t > ? AND t <= ? ORDER BY t`, id, from-bucketSec, to)
 	if err != nil {
-		log.Printf("query %s: %v", table, err)
-		return []Round{}
+		log.Printf("query hourly: %v", err)
+		return []Bucket{}
 	}
 	defer rows.Close()
-	out := []Round{}
+	out := []Bucket{}
 	for rows.Next() {
-		var t int64
-		var lo, p50, p90, p99, hi, loss float64
-		var bursts, n int
-		if err := rows.Scan(&t, &lo, &p50, &p90, &p99, &hi, &loss, &bursts, &n); err != nil {
+		var b Bucket
+		var q [5]sql.NullFloat64
+		if err := rows.Scan(&b.T, &q[0], &q[1], &q[2], &q[3], &q[4], &b.Loss, &b.Bursts, &b.N); err != nil {
+			log.Printf("scan hourly: %v", err)
 			break
 		}
-		sent := n
-		if sent == 0 {
-			sent = 1
+		if q[0].Valid {
+			b.Q = []float64{q[0].Float64, q[1].Float64, q[2].Float64, q[3].Float64, q[4].Float64}
 		}
-		out = append(out, Round{
-			T: t, S: sent, R: sent - int(float64(sent)*loss/100+0.5),
-			MS: []float64{lo, p50, p90, p99, hi},
-			B:  bursts > 0,
-		})
+		out = append(out, b)
 	}
 	return out
 }
 
-// Rollup recomputes aggregates for a period. Cheap enough to just redo the recent
-// window on every run rather than track what changed.
-func (s *Store) Rollup(since int64) error {
-	for _, spec := range []struct{ table, unit string }{
-		{"rounds_hourly", "3600"},
-		{"rounds_daily", "86400"},
-	} {
-		q := `INSERT OR REPLACE INTO ` + spec.table + `
-	(target_id,t,lo,p50,p90,p99,hi,loss_pct,bursts,n)
-	SELECT target_id, (t/` + spec.unit + `)*` + spec.unit + `,
-	       0,0,0,0,0,
-	       100.0*(SUM(sent)-SUM(recv))/MAX(SUM(sent),1),
-	       SUM(burst), COUNT(*)
-	  FROM rounds WHERE t >= ?
-	 GROUP BY target_id, t/` + spec.unit
-		if _, err := s.db.Exec(q, since); err != nil {
-			return err
-		}
+// Rollup recomputes every hourly bucket from `since` onward, in one streaming pass
+// and one transaction (readers never see a half-written bucket).
+//
+// The one rule that matters: a bucket may only be recomputed while raw still holds
+// all of it. `since` is aligned down to a bucket boundary — never recompute half a
+// bucket — and anything starting before `horizon` (the oldest instant raw is
+// guaranteed to hold) is left alone, because retention may already have deleted its
+// first minutes and a recompute would overwrite the good value with a truncated one.
+func (s *Store) Rollup(since, horizon int64) error {
+	start := since / bucketSec * bucketSec
+	if start < horizon {
+		start = (horizon + bucketSec - 1) / bucketSec * bucketSec
 	}
-	return s.rollupPercentiles(since)
-}
-
-// rollupPercentiles fills the shape columns. Percentiles need the samples
-// themselves, so this pass reads raw rounds per bucket — still far cheaper than
-// doing it at query time, and it happens once an hour.
-func (s *Store) rollupPercentiles(since int64) error {
-	for _, spec := range []struct {
-		table string
-		unit  int64
-	}{
-		{"rounds_hourly", 3600},
-		{"rounds_daily", 86400},
-	} {
-		rows, err := s.db.Query(
-			`SELECT target_id, (t/?)*?, samples FROM rounds WHERE t >= ? ORDER BY target_id, t`,
-			spec.unit, spec.unit, since)
-		if err != nil {
-			return err
+	rows, err := s.db.Query(`SELECT target_id, t, sent, recv, samples, burst FROM rounds
+	                          WHERE t >= ? ORDER BY target_id, t`, start)
+	if err != nil {
+		return err
+	}
+	type agg struct {
+		id, t                int64
+		sent, recv, n, burst int
+		q                    []any // 5 values, or 5 nils
+	}
+	var out []agg
+	var cur agg
+	var vals []float64 // reused: only one bucket's samples are ever held in memory
+	open := false
+	closeBucket := func() {
+		if !open {
+			return
 		}
-		type key struct {
-			id int64
-			b  int64
-		}
-		buckets := map[key][]float64{}
-		for rows.Next() {
-			var id, bucket int64
-			var blob []byte
-			if err := rows.Scan(&id, &bucket, &blob); err != nil {
-				break
+		cur.q = []any{nil, nil, nil, nil, nil}
+		if len(vals) > 0 {
+			sort.Float64s(vals)
+			for i, p := range []float64{0, .5, .9, .99, 1} {
+				cur.q[i] = round2(vals[int(float64(len(vals)-1)*p)])
 			}
-			buckets[key{id, bucket}] = append(buckets[key{id, bucket}], unpackSamples(blob)...)
 		}
-		rows.Close()
-
-		tx, err := s.db.Begin()
-		if err != nil {
+		out = append(out, cur)
+	}
+	for rows.Next() {
+		var id, t int64
+		var sent, recv, burst int
+		var blob []byte
+		if err := rows.Scan(&id, &t, &sent, &recv, &blob, &burst); err != nil {
+			rows.Close()
 			return err
 		}
-		stmt, err := tx.Prepare(`UPDATE ` + spec.table + `
-		    SET lo=?,p50=?,p90=?,p99=?,hi=? WHERE target_id=? AND t=?`)
-		if err != nil {
+		if b := t / bucketSec * bucketSec; !open || id != cur.id || b != cur.t {
+			closeBucket()
+			cur, vals, open = agg{id: id, t: b}, vals[:0], true
+		}
+		cur.sent += sent
+		cur.recv += recv
+		cur.burst += burst
+		cur.n++
+		vals = append(vals, unpackSamples(blob)...)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	closeBucket()
+	if len(out) == 0 {
+		return nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	stmt, err := tx.Prepare(`INSERT OR REPLACE INTO rounds_hourly
+	    (target_id,t,lo,p50,p90,p99,hi,loss_pct,bursts,n) VALUES(?,?,?,?,?,?,?,?,?,?)`)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	for _, a := range out {
+		loss := 0.0
+		if a.sent > 0 {
+			loss = 100 * float64(a.sent-a.recv) / float64(a.sent)
+		}
+		if _, err := stmt.Exec(a.id, a.t, a.q[0], a.q[1], a.q[2], a.q[3], a.q[4], loss, a.burst, a.n); err != nil {
+			stmt.Close()
 			tx.Rollback()
 			return err
 		}
-		for k, vals := range buckets {
-			if len(vals) == 0 {
-				continue
-			}
-			sort.Float64s(vals)
-			q := func(p float64) float64 {
-				i := int(float64(len(vals)-1) * p)
-				return round2(vals[i])
-			}
-			if _, err := stmt.Exec(q(0), q(0.5), q(0.9), q(0.99), q(1), k.id, k.b); err != nil {
-				stmt.Close()
-				tx.Rollback()
-				return err
-			}
-		}
-		stmt.Close()
-		if err := tx.Commit(); err != nil {
-			return err
-		}
 	}
-	return nil
+	stmt.Close()
+	return tx.Commit()
 }
 
-// Retention deletes raw rounds past rawDays and rollups past keepDays. Rollups are
-// tiny, so they can outlive the raw data by a long way.
-func (s *Store) Retention(rawDays, keepDays int) {
+// rollupSched decides what Rollup covers on each housekeeping tick: everything raw
+// still holds on the first tick (so a fresh or restarted instance never shows an
+// empty 3d/7d chart), then the last two hours every five minutes.
+type rollupSched struct {
+	hot  time.Duration
+	last time.Time
+}
+
+func (r *rollupSched) tick(s *Store, now time.Time) {
+	horizon := now.Add(-r.hot).Unix()
+	since := now.Add(-2 * time.Hour).Unix()
+	switch {
+	case r.last.IsZero():
+		since = horizon
+	case now.Sub(r.last) < 5*time.Minute:
+		return
+	}
+	if err := s.Rollup(since, horizon); err != nil {
+		log.Printf("rollup: %v", err)
+		return
+	}
+	r.last = now
+}
+
+// Retention deletes raw rounds past rawDays and hourly buckets past keepDays.
+func (s *Store) Retention(now time.Time, rawDays, keepDays int) {
 	if rawDays > 0 {
-		cut := time.Now().AddDate(0, 0, -rawDays).Unix()
+		cut := now.AddDate(0, 0, -rawDays).Unix()
 		if res, err := s.db.Exec(`DELETE FROM rounds WHERE t < ?`, cut); err == nil {
 			if n, _ := res.RowsAffected(); n > 0 {
 				log.Printf("retention: dropped %d raw rounds older than %dd", n, rawDays)
@@ -520,27 +552,16 @@ func (s *Store) Retention(rawDays, keepDays int) {
 		}
 	}
 	if keepDays > 0 {
-		cut := time.Now().AddDate(0, 0, -keepDays).Unix()
-		s.db.Exec(`DELETE FROM rounds_hourly WHERE t < ?`, cut)
-		s.db.Exec(`DELETE FROM rounds_daily WHERE t < ?`, cut)
+		s.db.Exec(`DELETE FROM rounds_hourly WHERE t < ?`, now.AddDate(0, 0, -keepDays).Unix())
 	}
 	s.reclaim()
 }
 
-// reclaim returns freed pages to the filesystem. SQLite marks deleted space reusable
-// but keeps the file at its high-water mark, so a box that once held 300 days would
-// never shrink after switching to a shorter window — surprising on the small hosts
-// this build targets. incremental_vacuum does it in bounded steps, unlike a full
-// VACUUM which rewrites the whole database and needs twice the space.
+// reclaim returns freed pages to the filesystem. SQLite keeps deleted space inside
+// the file, so a host that once ran with a long window would stay at its high-water
+// mark forever. incremental_vacuum barely moves in WAL mode, so this does a full
+// VACUUM when there is real slack — a few MB, under a second, once a night.
 func (s *Store) reclaim() {
-	// SQLite keeps deleted space inside the file: mark it reusable, never give it
-	// back. On a host that ran with a long window and then switched to a short one
-	// the file would stay at its high-water mark forever, which is a bad surprise on
-	// the small boxes this build is meant for.
-	//
-	// incremental_vacuum only frees a handful of pages per transaction in WAL mode,
-	// so it never catches up. A full VACUUM rebuilds the file and returns everything;
-	// at a few MB that costs well under a second, and it runs once a night.
 	if _, err := s.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
 		log.Printf("reclaim checkpoint: %v", err)
 	}
@@ -605,9 +626,3 @@ func pct(sorted []float64, p float64) float64 {
 	idx := int(float64(len(sorted)-1) * p / 100)
 	return sorted[idx]
 }
-
-// Retention:保留期就是 rm。按天分文件让清理不需要任何压缩整理逻辑。
-// downsampleRound collapses a round's samples to [min, median, P90, max].
-// The round itself is preserved — same timestamp, same sent/recv counts, same burst
-// flag and z-score — so cold data flows through the exact same code path as hot data.
-// Only the within-round redundancy is dropped: on a month-wide axis those 20-30

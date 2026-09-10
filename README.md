@@ -10,8 +10,8 @@ keeps the plain-JSONL storage.
 ```bash
 mkdir -p /home/fogping && cd /home/fogping
 
-wget https://github.com/githubflyideas/fogping/releases/download/v1.0.0/fogping-v1.0.0-linux-amd64.tar.gz
-tar -zxvf fogping-v1.0.0-linux-amd64.tar.gz
+wget https://github.com/githubflyideas/fogping/releases/download/v1.1.0/fogping-v1.1.0-linux-amd64.tar.gz
+tar -zxvf fogping-v1.1.0-linux-amd64.tar.gz
 ./fogping user=admin passwd=admin
 ```
 

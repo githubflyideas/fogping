@@ -239,7 +239,7 @@
 
 <footer>
   <span id="conclusion"></span>
-  <span class="legend">Line = per-round median · Smoke = all samples · Red bars = loss% · ◆ = burst</span>
+  <span class="legend" id="legend">Line = per-round median · Smoke = all samples · Red bars = loss% · ◆ = burst</span>
 </footer>
 
 <div class="promos">
@@ -324,9 +324,9 @@ async function renderInner(seq) {
   if (inflight) inflight.abort();
   const ctl = new AbortController();
   inflight = ctl;
-  let rounds;
+  let d;
   try {
-    rounds = await (await fetch(url, { signal: ctl.signal })).json() || [];
+    d = await (await fetch(url, { signal: ctl.signal })).json() || {};
   } catch (e) {
     if (e.name === 'AbortError') return; // 被新点击取代,静默退出
     throw e;
@@ -335,49 +335,87 @@ async function renderInner(seq) {
   }
   if (seq !== renderSeq) return; // 过期响应:已切走,丢弃
 
+  // Two kinds of rows. Raw rounds carry samples; hourly buckets carry five
+  // percentiles [min,p50,p90,p99,max]. They are not interchangeable: sorting a
+  // bucket's five numbers and taking the middle one yields its P90, not a median.
+  const hourly = d.tier === 'hourly';
   const smoke = [], median = [], lossBars = [], burstPts = [];
-  let sent = 0, recv = 0, bursts = 0;
-  const pool = [];
   const roundInfo = {};
-  rounds.forEach(r => {
-    const ts = r.t * 1000;
-    let rmed = 0;
-    if (r.ms && r.ms.length) {
-      const s = [...r.ms].sort((a,b)=>a-b);
-      rmed = s[Math.floor(s.length/2)];
-      median.push([ts, rmed]);
-    }
-    (r.ms || []).forEach(v => {
-      smoke.push([ts, v, rmed ? Math.abs(v - rmed) / rmed : 0]); // 维度2 = 偏离该轮中位数的比例
-      pool.push(v);
+  let bursts = 0, lossPct = 0, p50, p90, p99;
+  if (!hourly) {
+    let sent = 0, recv = 0;
+    const pool = [];
+    (d.rounds || []).forEach(r => {
+      const ts = r.t * 1000;
+      const srt = (r.ms && r.ms.length) ? [...r.ms].sort((a,b)=>a-b) : [];
+      const rmed = srt.length ? srt[Math.floor(srt.length/2)] : 0;
+      if (srt.length) median.push([ts, rmed]);
+      srt.forEach(v => {
+        smoke.push([ts, v, rmed ? Math.abs(v - rmed) / rmed : 0]); // 维度2 = 偏离该轮中位数的比例
+        pool.push(v);
+      });
+      sent += r.s; recv += r.r;
+      const lp = r.s ? (r.s - r.r) / r.s * 100 : 0;
+      if (lp > 0) lossBars.push([ts, lp]);
+      if (r.b) { bursts++; burstPts.push([ts, lp, `z-score ${r.z ? r.z.toFixed(2) : '—'} · loss ${lp.toFixed(0)}% (${r.s - r.r}/${r.s})`]); }
+      let avg = 0, mdev = 0;
+      if (srt.length) {
+        avg = srt.reduce((a,v)=>a+v,0) / srt.length;
+        mdev = Math.sqrt(srt.reduce((a,v)=>a+(v-avg)*(v-avg),0) / srt.length);
+      }
+      roundInfo[ts] = { med: rmed, lo: srt[0] || 0, hi: srt[srt.length-1] || 0, avg, mdev,
+                        n: srt.length, lp, lost: r.s - r.r, s: r.s, b: r.b, z: r.z || 0 };
     });
-    sent += r.s; recv += r.r;
-    const lp = r.s ? (r.s - r.r) / r.s * 100 : 0;
-    if (lp > 0) lossBars.push([ts, lp]);
-    if (r.b) { bursts++; burstPts.push([ts, lp, r.z || 0, r.s - r.r, r.s]); }
-    const srt = (r.ms && r.ms.length) ? [...r.ms].sort((a,b)=>a-b) : [];
-    let avg = 0, mdev = 0;
-    if (srt.length) {
-      avg = srt.reduce((a,v)=>a+v,0) / srt.length;
-      mdev = Math.sqrt(srt.reduce((a,v)=>a+(v-avg)*(v-avg),0) / srt.length);
-    }
-    roundInfo[ts] = { med: rmed, lo: srt[0] || 0, hi: srt[srt.length-1] || 0, avg, mdev,
-                      n: (r.ms || []).length, lp, lost: r.s - r.r, s: r.s, b: r.b, z: r.z || 0 };
-  });
-  pool.sort((a,b)=>a-b);
-  const q = p => pool.length ? pool[Math.min(pool.length-1, Math.floor(pool.length*p))] : 0;
-  const lossPct = sent ? (sent-recv)/sent*100 : 0;
+    pool.sort((a,b)=>a-b);
+    const q = p => pool[Math.min(pool.length-1, Math.floor(pool.length*p))];
+    if (pool.length) [p50, p90, p99] = [q(.5), q(.9), q(.99)];
+    lossPct = sent ? (sent-recv)/sent*100 : 0;
+  } else {
+    let lossW = 0, nW = 0;
+    const qs = [[], [], []]; // [value, weight] per P50/P90/P99
+    (d.buckets || []).forEach(b => {
+      const ts = b.t * 1000;
+      if (b.q) {
+        const m = b.q[1];
+        median.push([ts, m]);
+        b.q.forEach(v => smoke.push([ts, v, m ? Math.abs(v - m) / m : 0]));
+        qs.forEach((arr, i) => arr.push([b.q[i+1], b.n]));
+      }
+      if (b.loss > 0) lossBars.push([ts, b.loss]);
+      if (b.bursts) { bursts += b.bursts; burstPts.push([ts, b.loss, `${b.bursts} burst${b.bursts > 1 ? 's' : ''} this hour · loss ${b.loss.toFixed(2)}%`]); }
+      lossW += b.loss * b.n; nW += b.n;
+      roundInfo[ts] = { hourly: true, q: b.q, n: b.n, lp: b.loss, bursts: b.bursts || 0 };
+    });
+    // Window percentiles can't be rebuilt from hourly ones; show the typical hour's
+    // (round-weighted median of the hourly values) and mark them as approximate.
+    const wmed = arr => {
+      if (!arr.length) return undefined;
+      arr.sort((a,b)=>a[0]-b[0]);
+      const half = arr.reduce((s,x)=>s+x[1],0) / 2;
+      let acc = 0;
+      for (const [v,w] of arr) { acc += w; if (acc >= half) return v; }
+      return arr[arr.length-1][0];
+    };
+    [p50, p90, p99] = qs.map(wmed);
+    lossPct = nW ? lossW / nW : 0;
+  }
 
-  $('p50').textContent = pool.length ? q(.5).toFixed(1) : '–';
-  $('p90').textContent = pool.length ? q(.9).toFixed(1) : '–';
-  $('p99').textContent = pool.length ? q(.99).toFixed(1) : '–';
+  $('legend').textContent = hourly
+    ? 'Line = hourly median · Smoke = hourly min/p50/p90/p99/max · Red bars = loss% · ◆ = bursts'
+    : 'Line = per-round median · Smoke = all samples · Red bars = loss% · ◆ = burst';
+  const approx = hourly ? '≈' : '';
+  const fmt = v => v === undefined ? '–' : approx + v.toFixed(1);
+  ['p50','p90','p99'].forEach((id, i) => {
+    $(id).textContent = fmt([p50, p90, p99][i]);
+    $(id).title = hourly ? 'typical hour: round-weighted median of the hourly percentiles' : '';
+  });
   $('loss').textContent = lossPct.toFixed(2);
   $('loss').className = 'v' + (lossPct > 1 ? ' bad' : '');
   $('bursts').textContent = bursts;
   $('bursts').className = 'v' + (bursts ? ' bad' : '');
 
   const win = sel ? 'custom' : (document.querySelector('.rng button[data-m].on')?.textContent || minutes + 'm');
-  $('conclusion').textContent = (t.down ? '🔴 ' : '🟢 ') + `${t.name}: ${win} P99 ${pool.length ? q(.99).toFixed(1) : '–'} ms · loss ${lossPct.toFixed(2)}% · ${bursts} bursts`;
+  $('conclusion').textContent = (t.down ? '🔴 ' : '🟢 ') + `${t.name}: ${win} P99 ${fmt(p99)} ms · loss ${lossPct.toFixed(2)}% · ${bursts} bursts`;
 
   const phos = cssv('--phos');
   chart.setOption({
@@ -413,6 +451,14 @@ async function renderInner(seq) {
         const i = roundInfo[ts];
         if (!i) return '';
         let html = `<b>${new Date(+ts).toLocaleString()}</b>`;
+        if (i.hourly) {
+          const f = v => v.toFixed(1);
+          html += i.q ? `<br>hour min/p50/p90/p99/max = ${i.q.map(f).join('/')} ms` : '<br>no replies this hour';
+          html += `<br>${i.n} rounds`;
+          html += `<br><span style="color:${i.lp > 0 ? cssv('--alert') : cssv('--dim')}">loss <b>${i.lp.toFixed(2)}%</b></span>`;
+          if (i.bursts) html += ` <span style="color:${cssv('--alert')}">· ◆ ${i.bursts} burst${i.bursts > 1 ? 's' : ''}</span>`;
+          return html;
+        }
         html += `<br>rtt min/avg/max/mdev = ${i.lo.toFixed(3)}/${i.avg.toFixed(3)}/${i.hi.toFixed(3)}/${i.mdev.toFixed(3)} ms`;
         html += `<br>median <b>${i.med.toFixed(1)} ms</b> · ${i.n} samples`;
         html += `<br><span style="color:${i.lp > 0 ? cssv('--alert') : cssv('--dim')}">loss <b>${i.lp.toFixed(0)}%</b> (${i.lost}/${i.s})</span>`;
@@ -435,7 +481,7 @@ async function renderInner(seq) {
           [{ offset: 0, color: cssv('--alert') }, { offset: 1, color: cssv('--lossbar') }]) } },
       { type: 'scatter', yAxisIndex: 1, data: burstPts, symbol: 'diamond',
         symbolSize: 9, itemStyle: { color: cssv('--alert') }, z: 6,
-        tooltip: { formatter: p => `◆ z-score ${p.value[2] ? p.value[2].toFixed(2) : '—'} · loss ${p.value[1].toFixed(0)}% (${p.value[3]}/${p.value[4]})` } }
+        tooltip: { formatter: p => `◆ ${p.value[2]}` } }
     ]
   }, true);
 }
@@ -484,7 +530,8 @@ fetch('/api/version').then(r => r.json()).then(d => {
 
 render();
 setInterval(() => { if (!rendering) render(); }, 60000); // 慢查询进行中时跳过本次自动刷新
-// Long windows: smoke is a hot-data privilege — beyond 24h you get the
+// Beyond 24h the chart draws hourly buckets: the smoke is the five percentiles per
+// hour rather than every sample — raw samples are only kept for two days.
 
 // ---- target editor (server started with --edit) ----
 let editingId = 0;
