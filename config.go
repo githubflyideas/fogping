@@ -5,22 +5,22 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
-// fogping 2.0: a probe, text files, and a smoke graph. Nothing else.
-// Config: v2.1 has no config file. These are the program's constants —
-// the only things a user edits are targets/ping.list and tcp.list.
+// Program parameters are constants. Targets live in SQLite (the targets table);
+// targets/*.list files are only an import inbox — see ingest.go.
 type Config struct {
 	Listen        string
 	DataDir       string
 	TargetsDir    string
-	Targets       []TargetCfg
 	Probe         ProbeCfg
-	HotDays       int // full samples kept this long
-	RetentionDays int // downsampled data kept this long
+	HotDays       int  // full samples kept this long
+	RetentionDays int  // downsampled data kept this long
+	Editable      bool // --edit: web UI may create/update/delete targets
 }
 
 func defaultConfig() *Config {
@@ -34,27 +34,14 @@ func defaultConfig() *Config {
 	}
 }
 
-// FinishConfig loads targets from the lists and validates them.
-func FinishConfig(cfg *Config) error {
-	listTargets, err := loadTargetLists(cfg.TargetsDir)
-	if err != nil {
-		return err
-	}
-	cfg.Targets = append(cfg.Targets, listTargets...)
-	if len(cfg.Targets) == 0 {
-		return fmt.Errorf("no targets: add one line to %s/ping.list or tcp.list", cfg.TargetsDir)
-	}
-	return validateTargets(cfg)
-}
-
 type TargetCfg struct {
+	ID          int64  `json:"id"`
 	Name        string `json:"name"`
 	Type        string `json:"type"` // "icmp" (default) | "tcp"
 	Host        string `json:"host"`
 	Port        int    `json:"port"`         // tcp only
-	Pace        string `json:"pace"`         // "fast"(15s) | "normal"(60s) | "slow"(300s)
+	Pace        string `json:"pace"`         // "fast"(15s) | ""/"normal"(60s) | "slow"(300s)
 	IntervalSec int    `json:"interval_sec"` // explicit seconds, highest priority
-	dir         string
 }
 
 type ProbeCfg struct {
@@ -64,65 +51,86 @@ type ProbeCfg struct {
 	TimeoutMs   int `json:"timeout_ms"`
 }
 
-var dirSan = regexp.MustCompile(`[^a-zA-Z0-9._\p{Han}-]`)
-
-func validateTargets(cfg *Config) error {
-	seen := map[string]bool{}
-	for i := range cfg.Targets {
-		t := &cfg.Targets[i]
-		if t.Name == "" {
-			return fmt.Errorf("target #%d has no name", i+1)
+// normalizeTarget is the single validation gate: web CRUD and list import both
+// pass through it, so the DB never holds a target the prober can't run.
+func normalizeTarget(t *TargetCfg) error {
+	t.Type = strings.TrimSpace(t.Type)
+	t.Host = strings.TrimSpace(t.Host)
+	t.Name = strings.TrimSpace(t.Name)
+	t.Pace = strings.TrimSpace(t.Pace)
+	if t.Type == "" {
+		t.Type = "icmp"
+	}
+	switch t.Type {
+	case "icmp":
+		t.Port = 0
+	case "tcp":
+		if t.Port < 1 || t.Port > 65535 {
+			return fmt.Errorf("tcp target needs a port 1-65535")
 		}
-		if t.Type == "" {
-			t.Type = "icmp"
-		}
-		switch t.Type {
-		case "icmp":
-		case "tcp":
-			if t.Port <= 0 {
-				return fmt.Errorf("tcp target %q needs a port", t.Name)
-			}
-		default:
-			return fmt.Errorf("target %q: unknown type %q", t.Name, t.Type)
-		}
-		switch t.Pace {
-		case "", "fast", "normal", "slow":
-		default:
-			return fmt.Errorf("target %q: invalid pace %q (fast|slow)", t.Name, t.Pace)
-		}
-		t.dir = dirSan.ReplaceAllString(t.Name, "_")
-		if seen[t.dir] {
-			return fmt.Errorf("duplicate target name: %q", t.Name)
-		}
-		seen[t.dir] = true
+	default:
+		return fmt.Errorf("unknown type %q (icmp|tcp)", t.Type)
+	}
+	if t.Host == "" || len(t.Host) > 253 || strings.ContainsFunc(t.Host, unicode.IsSpace) {
+		return fmt.Errorf("invalid host %q", t.Host)
+	}
+	switch t.Pace {
+	case "normal":
+		t.Pace = ""
+	case "", "fast", "slow":
+	default:
+		return fmt.Errorf("invalid pace %q (fast|normal|slow)", t.Pace)
+	}
+	if t.IntervalSec < 0 || t.IntervalSec > 86400 {
+		return fmt.Errorf("interval must be 1-86400 seconds (0 = use pace)")
+	}
+	if t.Name == "" {
+		t.Name = targetAddr(*t)
+	}
+	if utf8.RuneCountInString(t.Name) > 64 || strings.ContainsFunc(t.Name, unicode.IsControl) {
+		return fmt.Errorf("name must be at most 64 printable characters")
 	}
 	return nil
 }
 
-// loadTargetLists reads targets/ping.list and tcp.list.
-// line format: host[:port]  [name...]  [pace=fast|slow] [interval=sec]
-func loadTargetLists(dir string) ([]TargetCfg, error) {
+func targetAddr(t TargetCfg) string {
+	if t.Type == "tcp" {
+		return net.JoinHostPort(t.Host, strconv.Itoa(t.Port))
+	}
+	return t.Host
+}
+
+// parseListFile reads one list file into validated targets. Any bad line rejects
+// the whole file: a half-imported list is harder to reason about than none.
+func parseListFile(path, typ string) ([]TargetCfg, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
 	var out []TargetCfg
-	for _, spec := range []struct{ file, typ string }{{"ping.list", "icmp"}, {"tcp.list", "tcp"}} {
-		raw, err := os.ReadFile(filepath.Join(dir, spec.file))
-		if err != nil {
+	seen := map[string]bool{}
+	for ln, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		for ln, line := range strings.Split(string(raw), "\n") {
-			line = strings.TrimSpace(line)
-			if line == "" || strings.HasPrefix(line, "#") {
-				continue
-			}
-			t, err := parseListLine(line, spec.typ)
-			if err != nil {
-				return nil, fmt.Errorf("%s/%s line %d: %w", dir, spec.file, ln+1, err)
-			}
-			out = append(out, t)
+		t, err := parseListLine(line, typ)
+		if err == nil {
+			err = normalizeTarget(&t)
 		}
+		if err == nil && seen[t.Name] {
+			err = fmt.Errorf("duplicate name %q", t.Name)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("%s line %d: %w", filepath.Base(path), ln+1, err)
+		}
+		seen[t.Name] = true
+		out = append(out, t)
 	}
 	return out, nil
 }
 
+// line format: host[:port]  [name...]  [pace=fast|slow] [interval=sec]
 func parseListLine(line, typ string) (TargetCfg, error) {
 	t := TargetCfg{Type: typ}
 	fields := strings.Fields(line)

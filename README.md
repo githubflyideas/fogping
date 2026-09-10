@@ -10,8 +10,8 @@ keeps the plain-JSONL storage.
 ```bash
 mkdir -p /home/fogping && cd /home/fogping
 
-wget https://github.com/githubflyideas/fogping/releases/download/v1.0.0/fogping-v1.0.0-linux-amd64.tar.gz
-tar -zxvf fogping-v1.0.0-linux-amd64.tar.gz
+wget https://github.com/githubflyideas/fogping/releases/download/v1.1.0/fogping-v1.1.0-linux-amd64.tar.gz
+tar -zxvf fogping-v1.1.0-linux-amd64.tar.gz
 ./fogping user=admin passwd=admin
 ```
 
@@ -32,12 +32,29 @@ linux/amd64 is the only released target. The published tarball is statically
 linked — it does not depend on the build host's glibc.
 
 -----------------------------------------------------------
-Add target host
+Targets
+-------
+Targets live in the SQLite database. The web UI is read-only by default; start with
+`--edit` to add, edit and delete targets from the browser, then restart without it:
+
+```bash
+./fogping --edit user=admin passwd=admin     # editable (needs a login, or --localhost)
+./fogping user=admin passwd=admin            # everyday: read-only
+```
+
+`targets/` is an import inbox for scripts and first-time setup. Drop a list there and
+it is imported within a few seconds, then archived as `*.imported`:
 ```
  echo "1.2.3.4 myhost pace=fast"    >> targets/ping.list
  echo "10.0.0.5:443 ads-api"        >> targets/tcp.list
 ```
-Changes to the lists are picked up automatically — no restart.
+Import upserts by name (an existing target of the same name takes the new settings).
+A file with a bad line is imported not at all and parked as `*.rejected`. Upgrading
+from an older build: your existing `ping.list`/`tcp.list` are imported on first
+start, and history carries over because it is keyed by target name.
+
+Deleting a target stops probing but keeps its history until retention ages it out;
+re-adding the same name picks the history back up. Renaming keeps history.
 
 Run it as a service
 ```ini
@@ -387,8 +404,9 @@ Friendly Links smokeping--- https://github.com/oetiker/SmokePing
 fogping is a minimalist smokeping-like network oscilloscope with SQLite storage:
 raw rounds are held hot for 2 days, then rolled up hourly and kept for 40 days
 (`--days` to change). Burst detection (z-score) writes its verdict alongside each
-round, so the ◆ marks on the chart come straight from the store. Built-in
-read-only Web UI with native auth — no Nginx, no Caddy, no external database.
+round, so the ◆ marks on the chart come straight from the store. Built-in Web UI
+with native auth — read-only unless started with `--edit` — no Nginx, no Caddy, no
+external database. Targets are rows in the same SQLite file; there is no config file.
 
 Storage is the only thing that separates it from its sibling
 [pingping](https://github.com/githubflyideas/pingping), which writes plain JSONL

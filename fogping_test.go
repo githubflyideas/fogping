@@ -119,7 +119,7 @@ func TestSQLiteRoundTrip(t *testing.T) {
 	}
 	s.Flush()
 
-	got := s.ReadRange(context.Background(), "T1", now-60, now+60)
+	got := s.ReadRange(context.Background(), "T1", now-60, now+60).Rounds
 	if len(got) != 1 {
 		t.Fatalf("want 1 round, got %d", len(got))
 	}
@@ -136,41 +136,27 @@ func TestSQLiteRoundTrip(t *testing.T) {
 }
 
 func TestTierSelection(t *testing.T) {
-	dir := t.TempDir()
-	s, err := NewStore(dir, []TargetCfg{{Name: "T2", Type: "icmp", Host: "1.1.1.1"}})
+	s, err := NewStore(t.TempDir(), []TargetCfg{{Name: "T2", Type: "icmp", Host: "1.1.1.1"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s.Close()
-
-	// 40 days of rounds, one per hour
 	now := time.Now().Unix()
-	for i := 0; i < 40*24; i++ {
-		s.Append("T2", Round{T: now - int64(i)*3600, S: 20, R: 20,
-			MS: []float64{40, 41, 42, 43}})
+	for i := 0; i < 40*24; i++ { // 40 days, one round per hour
+		s.Append("T2", Round{T: now - int64(i)*3600, S: 20, R: 20, MS: []float64{40, 41, 42, 43}})
 	}
 	s.Flush()
-	if err := s.Rollup(now - 41*86400); err != nil {
+	if err := s.Rollup(now-41*86400, now-41*86400); err != nil {
 		t.Fatal(err)
 	}
-
-	// 6h window -> raw tier, exact rounds
 	short := s.ReadRange(context.Background(), "T2", now-6*3600, now)
-	// 10d window -> hourly tier
-	mid := s.ReadRange(context.Background(), "T2", now-10*86400, now)
-	// 40d window -> daily tier, must be far fewer rows than hourly
 	long := s.ReadRange(context.Background(), "T2", now-40*86400, now)
-
-	if len(short) == 0 || len(mid) == 0 || len(long) == 0 {
-		t.Fatalf("empty tier: short=%d mid=%d long=%d", len(short), len(mid), len(long))
+	if short.Tier != "raw" || len(short.Rounds) == 0 {
+		t.Fatalf("6h should be raw rounds: %+v", short.Tier)
 	}
-	if len(long) > 60 {
-		t.Fatalf("daily tier should collapse 40d into ~40 rows, got %d", len(long))
+	if long.Tier != "hourly" || len(long.Buckets) < 40*24-1 {
+		t.Fatalf("40d should be ~960 hourly buckets, got %s/%d", long.Tier, len(long.Buckets))
 	}
-	if len(mid) < len(long) {
-		t.Fatalf("hourly tier should be denser than daily: %d vs %d", len(mid), len(long))
-	}
-	t.Logf("rows returned — 6h:%d  10d:%d  40d:%d", len(short), len(mid), len(long))
 }
 
 // Deleting rows must actually hand disk back, not just mark pages reusable.
