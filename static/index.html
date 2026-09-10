@@ -150,13 +150,31 @@
   .share a:hover { text-decoration:underline; }
   .share-links { display:flex; gap:12px; }
   .share-links a { color:var(--dim); font-weight:500; }
+  /* Target editor — only rendered when the server runs with --edit. */
+  .tgt { margin-bottom:14px; }
+  .tgt table { width:100%; border-collapse:collapse; font-size:var(--fs-body); }
+  .tgt th { color:var(--dim); font-size:var(--fs-micro); font-weight:600; letter-spacing:.13em;
+            text-transform:uppercase; text-align:left; padding:0 10px 6px 0; }
+  .tgt td { padding:6px 10px 6px 0; border-top:1px solid var(--line); }
+  .tgt td.mono { font-family:var(--mono); font-size:var(--fs-small); }
+  .tgt td.act { text-align:right; white-space:nowrap; }
+  .tgt .lnk { background:none; border:0; color:var(--phos); cursor:pointer; font:inherit; padding:0 0 0 12px; }
+  .tgt .lnk.del { color:var(--alert); }
+  .tgt form { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:12px; }
+  .tgt input, .tgt select { font-family:var(--mono); font-size:var(--fs-small); color:var(--ink);
+            background:var(--screen); border:1px solid var(--line); border-radius:4px; padding:6px 8px; }
+  .tgt input:focus, .tgt select:focus { outline:none; border-color:var(--phos); }
+  #tgtErr { color:var(--alert); font-size:var(--fs-small); }
 </style>
 </head>
 <body>
 <header>
   <div class="mark">fogping <span class="brand-led"></span></div>
   <div class="tag">One binary. One graph. One metric: Latency.</div>
-  <button class="pill" id="themeBtn" title="switch theme" style="margin-left:auto">◐ <span id="themeName">dark</span></button>
+  <div style="margin-left:auto; display:flex; gap:8px">
+    <button class="pill" id="editBtn" title="add, edit or remove targets" style="display:none">✎ targets</button>
+    <button class="pill" id="themeBtn" title="switch theme">◐ <span id="themeName">dark</span></button>
+  </div>
 </header>
 
 <div class="row">
@@ -166,6 +184,24 @@
     <button data-t="tcp">TCP</button>
   </div>
   <div class="pills" id="pills"></div>
+</div>
+
+<div class="scope tgt" id="tgtPanel" style="display:none">
+  <table>
+    <thead><tr><th>Name</th><th>Type</th><th>Address</th><th>Pace</th><th>Interval</th><th></th></tr></thead>
+    <tbody id="tgtRows"></tbody>
+  </table>
+  <form id="tgtForm" autocomplete="off">
+    <select id="fType"><option value="icmp">PING</option><option value="tcp">TCP</option></select>
+    <input id="fHost" placeholder="host or IP" size="22" required>
+    <input id="fPort" type="number" min="1" max="65535" placeholder="port" style="width:84px; display:none">
+    <input id="fName" placeholder="name (optional)" size="18" maxlength="64">
+    <select id="fPace"><option value="normal">normal · 60s</option><option value="fast">fast · 15s</option><option value="slow">slow · 300s</option></select>
+    <input id="fIv" type="number" min="1" max="86400" placeholder="interval (s)" style="width:112px" title="overrides pace">
+    <button class="pill" id="fSave" type="submit">+ add</button>
+    <button class="pill" id="fCancel" type="button" style="display:none">cancel</button>
+    <span id="tgtErr"></span>
+  </form>
 </div>
 
 <div class="scope">
@@ -248,12 +284,15 @@ async function loadTargets() {
   targets = await (await fetch('/api/targets')).json() || [];
   const kinds = new Set(targets.map(t => t.type));
   $('tfilter').style.display = kinds.size > 1 ? '' : 'none';
+  drawTargetTable();
   const visible = targets.filter(t => typeFilter === 'all' || t.type === typeFilter);
   const pills = $('pills'); pills.innerHTML = '';
   visible.forEach(t => {
     const b = document.createElement('button');
     b.className = 'pill' + (t.name === current ? ' on' : '');
-    b.innerHTML = `<span class="led${t.down ? ' bad' : ''}"></span>${t.name}`;
+    const led = document.createElement('span');
+    led.className = 'led' + (t.down ? ' bad' : '');
+    b.append(led, document.createTextNode(t.name)); // names are user-editable: never innerHTML
     b.onclick = () => { current = t.name; render(); };
     pills.appendChild(b);
   });
@@ -432,6 +471,7 @@ document.querySelectorAll('#tfilter button').forEach(b => b.onclick = () => {
 
 // 版本号显示在赞助栏标题;保留期决定哪些时间窗有意义
 fetch('/api/version').then(r => r.json()).then(d => {
+  if (d.editable) $('editBtn').style.display = '';
   const el = $('ver');
   if (el && d.version) el.textContent = 'v' + String(d.version).replace(/^v/, '');
   const keep = (d.retention_days || 0) * 1440;
@@ -445,6 +485,74 @@ fetch('/api/version').then(r => r.json()).then(d => {
 render();
 setInterval(() => { if (!rendering) render(); }, 60000); // 慢查询进行中时跳过本次自动刷新
 // Long windows: smoke is a hot-data privilege — beyond 24h you get the
+
+// ---- target editor (server started with --edit) ----
+let editingId = 0;
+function drawTargetTable() {
+  if ($('tgtPanel').style.display === 'none') return;
+  const body = $('tgtRows'); body.replaceChildren();
+  targets.forEach(t => {
+    const tr = document.createElement('tr');
+    const cell = (text, cls) => { const td = document.createElement('td'); td.textContent = text;
+                                  if (cls) td.className = cls; tr.append(td); };
+    cell(t.name); cell(t.type === 'tcp' ? 'TCP' : 'PING'); cell(t.addr, 'mono');
+    cell(t.pace); cell(t.interval_sec + 's' + (t.interval_set ? '' : ' (pace)'), 'mono');
+    const act = document.createElement('td'); act.className = 'act';
+    const ed = document.createElement('button'); ed.className = 'lnk'; ed.textContent = 'edit';
+    ed.onclick = () => fillForm(t);
+    const del = document.createElement('button'); del.className = 'lnk del'; del.textContent = 'delete';
+    del.onclick = () => deleteTarget(t);
+    act.append(ed, del); tr.append(act); body.append(tr);
+  });
+}
+function fillForm(t) {
+  editingId = t ? t.id : 0;
+  $('fType').value = t ? t.type : 'icmp';
+  $('fHost').value = t ? t.host : '';
+  $('fPort').value = t && t.port ? t.port : '';
+  $('fName').value = t ? t.name : '';
+  $('fPace').value = t ? t.pace : 'normal';
+  $('fIv').value = t && t.interval_set ? t.interval_set : '';
+  $('fSave').textContent = t ? 'save' : '+ add';
+  $('fCancel').style.display = t ? '' : 'none';
+  $('tgtErr').textContent = '';
+  $('fType').onchange();
+  if (t) $('fHost').focus();
+}
+$('fType').onchange = () => { $('fPort').style.display = $('fType').value === 'tcp' ? '' : 'none'; };
+$('fCancel').onclick = () => fillForm(null);
+async function targetCall(method, url, body) {
+  const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' },
+                                 body: body ? JSON.stringify(body) : undefined });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+  return d;
+}
+$('tgtForm').onsubmit = async e => {
+  e.preventDefault();
+  const body = { type: $('fType').value, host: $('fHost').value, port: +$('fPort').value || 0,
+                 name: $('fName').value, pace: $('fPace').value, interval_sec: +$('fIv').value || 0 };
+  try {
+    const t = editingId ? await targetCall('PUT', `/api/targets/${editingId}`, body)
+                        : await targetCall('POST', '/api/targets', body);
+    current = t.name; fillForm(null); render();
+  } catch (err) { $('tgtErr').textContent = err.message; }
+};
+async function deleteTarget(t) {
+  if (!confirm(`Stop probing "${t.name}"?\nIts history is kept, and comes back if you re-add the same name.`)) return;
+  try {
+    await targetCall('DELETE', `/api/targets/${t.id}`);
+    if (editingId === t.id) fillForm(null);
+    if (current === t.name) current = null;
+    render();
+  } catch (err) { $('tgtErr').textContent = err.message; }
+}
+$('editBtn').onclick = () => {
+  const p = $('tgtPanel'), open = p.style.display === 'none';
+  p.style.display = open ? '' : 'none';
+  $('editBtn').classList.toggle('on', open);
+  drawTargetTable();
+};
 
 $('themeBtn').onclick = () => {
   theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];

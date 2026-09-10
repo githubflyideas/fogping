@@ -6,8 +6,11 @@ import (
 	"embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"log"
+	"mime"
 	"net/http"
+	"net/url"
 	"strconv"
 	"sync"
 	"time"
@@ -44,7 +47,11 @@ func (s *sessions) valid(tok string) bool {
 	return true
 }
 
-func serveWeb(cfg *Config, store *Store, users map[string]string) error {
+func serveWeb(cfg *Config, store *Store, run *Runner, users map[string]string) error {
+	return http.ListenAndServe(cfg.Listen, newMux(cfg, store, run, users))
+}
+
+func newMux(cfg *Config, store *Store, run *Runner, users map[string]string) http.Handler {
 	sess := &sessions{m: map[string]time.Time{}}
 	mux := http.NewServeMux()
 
@@ -116,43 +123,125 @@ func serveWeb(cfg *Config, store *Store, users map[string]string) error {
 	})
 
 	mux.HandleFunc("/api/version", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]any{"version": version, "retention_days": cfg.RetentionDays})
+		writeJSON(w, map[string]any{"version": version, "retention_days": cfg.RetentionDays,
+			"editable": cfg.Editable})
 	})
 
-	mux.HandleFunc("/api/targets", guard(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/targets", guard(func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now()
 		type item struct {
+			ID          int64  `json:"id"`
 			Name        string `json:"name"`
 			Type        string `json:"type"`
 			Host        string `json:"host"`
-			IntervalSec int    `json:"interval_sec"`
+			Port        int    `json:"port"`
+			Addr        string `json:"addr"`
+			IntervalSec int    `json:"interval_sec"` // effective
+			IntervalSet int    `json:"interval_set"` // explicit override, 0 = from pace
 			Pace        string `json:"pace"`
 			Down        bool   `json:"down"`
 			Last1h      Stats  `json:"last_1h"`
 			Last24h     Stats  `json:"last_24h"`
 		}
-		byName := map[string]TargetCfg{}
-		for _, t := range cfg.Targets {
-			byName[t.Name] = t
-		}
-		var out []item
-		for _, name := range store.Names() {
-			t := byName[name]
+		out := []item{}
+		for _, t := range run.Targets() {
 			iv, _ := probeParams(t, cfg.Probe)
 			pace := t.Pace
 			if pace == "" {
 				pace = "normal"
 			}
-			rec := store.Recent(name, now.Add(-time.Hour).Unix())
+			rec := store.Recent(t.Name, now.Add(-time.Hour).Unix())
 			down := len(rec) > 0 && rec[len(rec)-1].R == 0
 			out = append(out, item{
-				Name: name, Type: t.Type, Host: targetAddr(t),
-				IntervalSec: int(iv.Seconds()), Pace: pace, Down: down,
+				ID: t.ID, Name: t.Name, Type: t.Type, Host: t.Host, Port: t.Port, Addr: targetAddr(t),
+				IntervalSec: int(iv.Seconds()), IntervalSet: t.IntervalSec, Pace: pace, Down: down,
 				Last1h:  calcStats(rec),
-				Last24h: calcStats(store.Recent(name, now.Add(-24*time.Hour).Unix())),
+				Last24h: calcStats(store.Recent(t.Name, now.Add(-24*time.Hour).Unix())),
 			})
 		}
 		writeJSON(w, out)
+	}))
+
+	// Target CRUD. Always routed so a read-only instance answers with a reason
+	// instead of a bare 405; every write goes DB first, then Runner.Reload.
+	write := func(h func(w http.ResponseWriter, r *http.Request, id int64)) http.HandlerFunc {
+		return guard(func(w http.ResponseWriter, r *http.Request) {
+			if !cfg.Editable {
+				jsonErr(w, http.StatusForbidden, "read-only: restart fogping with --edit to change targets")
+				return
+			}
+			if !sameOrigin(r) {
+				jsonErr(w, http.StatusForbidden, "cross-origin request refused")
+				return
+			}
+			var id int64
+			if v := r.PathValue("id"); v != "" {
+				n, err := strconv.ParseInt(v, 10, 64)
+				if err != nil || n <= 0 {
+					jsonErr(w, http.StatusBadRequest, "bad id")
+					return
+				}
+				id = n
+			}
+			h(w, r, id)
+		})
+	}
+	decode := func(w http.ResponseWriter, r *http.Request) (TargetCfg, bool) {
+		var t TargetCfg
+		// JSON content type forces a CORS preflight on cross-site requests, which we
+		// never answer — so a form on another site can't drive these endpoints.
+		if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt != "application/json" {
+			jsonErr(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
+			return t, false
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&t); err != nil {
+			jsonErr(w, http.StatusBadRequest, "bad JSON: "+err.Error())
+			return t, false
+		}
+		if err := normalizeTarget(&t); err != nil {
+			jsonErr(w, http.StatusBadRequest, err.Error())
+			return t, false
+		}
+		return t, true
+	}
+	done := func(w http.ResponseWriter, t TargetCfg, err error, verb string) {
+		switch {
+		case errors.Is(err, errNameTaken), errors.Is(err, errNameDeleted):
+			jsonErr(w, http.StatusConflict, err.Error())
+		case errors.Is(err, errNotFound):
+			jsonErr(w, http.StatusNotFound, err.Error())
+		case err != nil:
+			log.Printf("target %s: %v", verb, err)
+			jsonErr(w, http.StatusInternalServerError, err.Error())
+		default:
+			if err := run.Reload(); err != nil {
+				log.Printf("reload after %s: %v", verb, err)
+			}
+			log.Printf("web: target %s %q (%s)", verb, t.Name, targetAddr(t))
+			writeJSON(w, t)
+		}
+	}
+	mux.HandleFunc("POST /api/targets", write(func(w http.ResponseWriter, r *http.Request, _ int64) {
+		if t, ok := decode(w, r); ok {
+			t, err := store.CreateTarget(t)
+			done(w, t, err, "created")
+		}
+	}))
+	mux.HandleFunc("PUT /api/targets/{id}", write(func(w http.ResponseWriter, r *http.Request, id int64) {
+		if t, ok := decode(w, r); ok {
+			t.ID = id
+			t, err := store.UpdateTarget(t)
+			done(w, t, err, "updated")
+		}
+	}))
+	mux.HandleFunc("DELETE /api/targets/{id}", write(func(w http.ResponseWriter, r *http.Request, id int64) {
+		var t TargetCfg
+		for _, x := range run.Targets() {
+			if x.ID == id {
+				t = x
+			}
+		}
+		done(w, t, store.DeactivateTarget(id), "deleted")
 	}))
 
 	// raw rounds for smoke. Supports either minutes=N (recent window) or from/to unix
@@ -173,14 +262,24 @@ func serveWeb(cfg *Config, store *Store, users map[string]string) error {
 		writeJSON(w, store.ReadRange(r.Context(), name, from, to))
 	}))
 
-	return http.ListenAndServe(cfg.Listen, mux)
+	return mux
 }
 
-func targetAddr(t TargetCfg) string {
-	if t.Type == "tcp" {
-		return t.Host + ":" + strconv.Itoa(t.Port)
+// sameOrigin rejects browser requests whose Origin doesn't match the Host they were
+// sent to. Non-browser clients (curl) send no Origin and are let through to auth.
+func sameOrigin(r *http.Request) bool {
+	o := r.Header.Get("Origin")
+	if o == "" {
+		return true
 	}
-	return t.Host
+	u, err := url.Parse(o)
+	return err == nil && u.Host == r.Host
+}
+
+func jsonErr(w http.ResponseWriter, code int, msg string) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

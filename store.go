@@ -113,6 +113,9 @@ CREATE TABLE IF NOT EXISTS rounds_daily (
 	if _, err := db.Exec(schema); err != nil {
 		return nil, err
 	}
+	if err := migrateTargets(db); err != nil {
+		return nil, err
+	}
 
 	s := &Store{
 		db:    db,
@@ -131,23 +134,33 @@ CREATE TABLE IF NOT EXISTS rounds_daily (
 
 func (s *Store) Close() error { s.Flush(); return s.db.Close() }
 
-// EnsureTarget registers a target, creating its row if new.
+// EnsureTarget registers a target in the live set (creating a bare row if the name
+// is unknown, which only tests rely on) and replays its last 24h into the ring, so
+// a target re-added with an old name comes back with its flight recorder intact.
 func (s *Store) EnsureTarget(t TargetCfg) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, ok := s.ids[t.Name]; ok {
+	s.mu.RLock()
+	_, ok := s.ids[t.Name]
+	s.mu.RUnlock()
+	if ok {
 		return nil
 	}
-	if _, err := s.db.Exec(`INSERT OR IGNORE INTO targets(name) VALUES(?)`, t.Name); err != nil {
-		return err
-	}
 	var id int64
-	if err := s.db.QueryRow(`SELECT id FROM targets WHERE name = ?`, t.Name).Scan(&id); err != nil {
+	err := s.db.QueryRow(`SELECT id FROM targets WHERE name = ?`, t.Name).Scan(&id)
+	if err == sql.ErrNoRows {
+		var res sql.Result
+		if res, err = s.db.Exec(`INSERT INTO targets(name) VALUES(?)`, t.Name); err == nil {
+			id, err = res.LastInsertId()
+		}
+	}
+	if err != nil {
 		return err
 	}
+	s.mu.Lock()
 	s.ids[t.Name] = id
 	s.rings[t.Name] = nil
 	s.names = append(s.names, t.Name)
+	s.mu.Unlock()
+	s.replay(t.Name)
 	return nil
 }
 
@@ -161,6 +174,25 @@ func (s *Store) RemoveTarget(name string) {
 		if n == name {
 			s.names = append(s.names[:i], s.names[i+1:]...)
 			break
+		}
+	}
+}
+
+// RenameTarget moves the live state to a new name. History follows automatically:
+// rows are keyed by target_id, and the id doesn't change on rename.
+func (s *Store) RenameTarget(old, new string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id, ok := s.ids[old]
+	if !ok {
+		return
+	}
+	s.ids[new], s.rings[new] = id, s.rings[old]
+	delete(s.ids, old)
+	delete(s.rings, old)
+	for i, n := range s.names {
+		if n == old {
+			s.names[i] = new
 		}
 	}
 }
@@ -277,20 +309,19 @@ func (s *Store) Flush() error {
 	return tx.Commit()
 }
 
-// Replay rebuilds the in-memory ring from the last 24h on startup.
-func (s *Store) Replay() {
-	cut := time.Now().Add(-24 * time.Hour).Unix()
-	for _, name := range s.Names() {
-		rounds := s.queryRaw(context.Background(), name, cut, time.Now().Unix())
-		if len(rounds) > ringCap {
-			rounds = rounds[len(rounds)-ringCap:]
-		}
-		s.mu.Lock()
+// replay rebuilds one target's in-memory ring from its last 24h.
+func (s *Store) replay(name string) {
+	rounds := s.queryRaw(context.Background(), name, time.Now().Add(-24*time.Hour).Unix(), time.Now().Unix())
+	if len(rounds) > ringCap {
+		rounds = rounds[len(rounds)-ringCap:]
+	}
+	s.mu.Lock()
+	if _, ok := s.ids[name]; ok {
 		s.rings[name] = rounds
-		s.mu.Unlock()
-		if len(rounds) > 0 {
-			log.Printf("[%s] replayed %d rounds", name, len(rounds))
-		}
+	}
+	s.mu.Unlock()
+	if len(rounds) > 0 {
+		log.Printf("[%s] replayed %d rounds", name, len(rounds))
 	}
 }
 

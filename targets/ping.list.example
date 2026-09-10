@@ -1,4 +1,4 @@
-# ICMP targets — one per line, restart to apply. Copy to ping.list.
+# ICMP targets, one per line. Copy to ping.list to import them (the file is then archived).
 # format: host  [name]  [pace=fast|slow] [interval=sec]
 www.google.com   Demo-Google   pace=fast
 59.43.247.1      HK-CN2        pace=fast
