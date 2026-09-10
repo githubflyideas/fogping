@@ -80,8 +80,7 @@ CREATE TABLE IF NOT EXISTS targets (
   name TEXT NOT NULL UNIQUE
 );
 
--- Raw rounds. Samples are a packed float32 blob: 4 bytes each instead of ~6 chars
--- of JSON, and no parsing on read.
+-- Raw rounds. Samples are a packed float32 blob: 4 bytes each, no parsing on read.
 CREATE TABLE IF NOT EXISTS rounds (
   target_id INTEGER NOT NULL,
   t         INTEGER NOT NULL,

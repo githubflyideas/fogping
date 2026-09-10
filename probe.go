@@ -86,7 +86,7 @@ func icmpRound(host string, packets int, gap, timeout time.Duration) (Round, err
 
 	fd, raw, err := icmpSocket()
 	if err != nil {
-		return r, fmt.Errorf("无法创建 ICMP socket(需要 ping_group_range 或 cap_net_raw): %w", err)
+		return r, fmt.Errorf("cannot open an ICMP socket (needs net.ipv4.ping_group_range or cap_net_raw, see README): %w", err)
 	}
 	defer syscall.Close(fd)
 

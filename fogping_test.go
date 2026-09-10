@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -195,5 +196,12 @@ func TestReclaimShrinksFile(t *testing.T) {
 	t.Logf("db size: %d KB -> %d KB", before.Size()/1024, after.Size()/1024)
 	if after.Size() >= before.Size() {
 		t.Fatalf("file did not shrink: %d -> %d", before.Size(), after.Size())
+	}
+}
+
+func TestSplitArgsAnyOrder(t *testing.T) {
+	f, a := splitArgs([]string{"user=admin", "passwd=x", "--edit", "--days", "300", "--localhost=true"})
+	if strings.Join(f, " ") != "--edit --days 300 --localhost=true" || strings.Join(a, " ") != "user=admin passwd=x" {
+		t.Fatalf("flags=%q auth=%q", f, a)
 	}
 }
