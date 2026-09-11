@@ -4,15 +4,15 @@ import (
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
 
-// An install from before this change has a name-only targets table and rounds keyed
-// by its ids. Importing the old list must land on the same ids, i.e. keep history.
+// A 1.0.x database has a name-only targets table and rounds keyed by its ids.
+// The rows must come out inactive, and adding the same name in the web UI must
+// land on the same id — i.e. bring the history back.
 func TestMigrationKeepsHistory(t *testing.T) {
 	dir := t.TempDir()
 	db, _ := sql.Open("sqlite3", filepath.Join(dir, "fogping.db"))
@@ -28,36 +28,9 @@ func TestMigrationKeepsHistory(t *testing.T) {
 	if ts, _ := s.ActiveTargets(); len(ts) != 0 {
 		t.Fatalf("legacy rows must come out inactive, got %+v", ts)
 	}
-	tdir := t.TempDir()
-	os.WriteFile(filepath.Join(tdir, "ping.list"), []byte("59.43.247.1 HK CN2 pace=fast\n"), 0o644)
-	if n, err := ingestLists(tdir, s); err != nil || n != 1 {
-		t.Fatalf("ingest: n=%d err=%v", n, err)
-	}
-	ts, _ := s.ActiveTargets()
-	if len(ts) != 1 || ts[0].ID != 1 || ts[0].Host != "59.43.247.1" || ts[0].Pace != "fast" {
-		t.Fatalf("import should reactivate id 1 with list config, got %+v", ts)
-	}
-	if _, err := os.Stat(filepath.Join(tdir, "ping.list")); !os.IsNotExist(err) {
-		t.Fatal("ping.list should be moved aside after import")
-	}
-	if b, _ := os.ReadFile(filepath.Join(tdir, "ping.list.imported")); !strings.Contains(string(b), "HK CN2") {
-		t.Fatalf("archive missing content: %q", b)
-	}
-}
-
-func TestIngestRejectsWholeFile(t *testing.T) {
-	s, _ := NewStore(t.TempDir(), nil)
-	defer s.Close()
-	tdir := t.TempDir()
-	os.WriteFile(filepath.Join(tdir, "tcp.list"), []byte("10.0.0.5:443 ok\nnoport broken\n"), 0o644)
-	if _, err := ingestLists(tdir, s); err == nil || !strings.Contains(err.Error(), "line 2") {
-		t.Fatalf("want line-2 error, got %v", err)
-	}
-	if ts, _ := s.ActiveTargets(); len(ts) != 0 {
-		t.Fatalf("a bad line must reject the whole file, got %+v", ts)
-	}
-	if _, err := os.Stat(filepath.Join(tdir, "tcp.list.rejected")); err != nil {
-		t.Fatal("bad file should be parked as .rejected")
+	got, err := s.CreateTarget(TargetCfg{Name: "HK CN2", Type: "icmp", Host: "59.43.247.1", Pace: "fast"})
+	if err != nil || got.ID != 1 {
+		t.Fatalf("re-adding the old name should reactivate id 1, got %+v %v", got, err)
 	}
 }
 

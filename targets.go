@@ -11,7 +11,7 @@ import (
 // Targets live in the same table that already maps names to ids for the rounds.
 // A row is either active (probed, shown) or inactive: a deleted target whose
 // history is kept until retention ages it out. Re-adding the same name reactivates
-// the row, so its history resumes — the same semantics the list files had.
+// the row, so its history resumes.
 
 var (
 	errNotFound  = errors.New("target not found")
@@ -21,8 +21,9 @@ var (
 	errNameDeleted = errors.New("name belongs to a deleted target — add it as a new target to restore its history")
 )
 
-// migrateTargets adds the config columns to a pre-existing name-only table. Old
-// rows come out inactive; the list import (or the web UI) reactivates them by name.
+// migrateTargets adds the config columns to a pre-existing name-only table (1.0.x).
+// Old rows come out inactive; adding a target with the same name in the web UI
+// reactivates the row, and with it the history.
 func migrateTargets(db *sql.DB) error {
 	have := map[string]bool{}
 	rows, err := db.Query(`PRAGMA table_info(targets)`)
@@ -136,20 +137,4 @@ func (s *Store) DeactivateTarget(id int64) error {
 		return errNotFound
 	}
 	return nil
-}
-
-// ImportTargets upserts a batch by name in one transaction — list import wins over
-// whatever the row held before, like editing the list file used to.
-func (s *Store) ImportTargets(ts []TargetCfg) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	for _, t := range ts {
-		if _, err := tx.Exec(upsertTarget, t.Name, t.Type, t.Host, t.Port, t.Pace, t.IntervalSec); err != nil {
-			tx.Rollback()
-			return err
-		}
-	}
-	return tx.Commit()
 }

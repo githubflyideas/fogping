@@ -7,21 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
-
-func TestParseListLine(t *testing.T) {
-	tt, err := parseListLine("59.43.247.1 HK CN2 pace=fast", "icmp")
-	if err != nil || tt.Name != "HK CN2" || tt.Pace != "fast" {
-		t.Fatalf("icmp line: %+v %v", tt, err)
-	}
-	tt, err = parseListLine("10.0.0.5:443 gw interval=30", "tcp")
-	if err != nil || tt.Host != "10.0.0.5" || tt.Port != 443 || tt.IntervalSec != 30 {
-		t.Fatalf("tcp line: %+v %v", tt, err)
-	}
-	if _, err := parseListLine("noport name", "tcp"); err == nil {
-		t.Fatal("tcp without port should fail")
-	}
-}
 
 func TestProbeParams(t *testing.T) {
 	g := ProbeCfg{IntervalSec: 60, Packets: 20}
@@ -69,22 +56,65 @@ func BenchmarkCalcStats24h(b *testing.B) {
 	}
 }
 
-func FuzzParseListLine(f *testing.F) {
-	f.Add("1.2.3.4 name pace=fast", "icmp")
-	f.Add("10.0.0.5:443 gw interval=30", "tcp")
-	f.Add("host:99999 x", "tcp")
-	f.Add("::1 v6", "icmp")
-	f.Fuzz(func(t *testing.T, line, typ string) {
-		if typ != "icmp" && typ != "tcp" {
-			typ = "icmp"
+// normalizeTarget is the only gate between the web API and the targets table.
+func TestNormalizeTarget(t *testing.T) {
+	ok := []TargetCfg{
+		{Host: " 59.43.247.1 ", Name: "HK CN2", Pace: "fast"},
+		{Type: "tcp", Host: "10.0.0.5", Port: 443, IntervalSec: 30},
+		{Host: "example.com", Pace: "normal"},
+	}
+	for _, c := range ok {
+		if err := normalizeTarget(&c); err != nil {
+			t.Fatalf("%+v: %v", c, err)
 		}
-		if len(line) == 0 || line[0] == '#' {
+	}
+	c := TargetCfg{Type: "tcp", Host: "10.0.0.5", Port: 443}
+	normalizeTarget(&c)
+	if c.Name != "10.0.0.5:443" {
+		t.Fatalf("tcp default name: %q", c.Name)
+	}
+	c = TargetCfg{Host: "1.1.1.1", Pace: "normal"}
+	normalizeTarget(&c)
+	if c.Pace != "" || c.Name != "1.1.1.1" || c.Type != "icmp" {
+		t.Fatalf("defaults: %+v", c)
+	}
+	bad := []TargetCfg{
+		{Host: ""},
+		{Host: "a b"},
+		{Type: "tcp", Host: "h"},
+		{Type: "tcp", Host: "h", Port: 70000},
+		{Type: "udp", Host: "h"},
+		{Host: "h", Pace: "turbo"},
+		{Host: "h", IntervalSec: -1},
+		{Host: "h", Name: strings.Repeat("x", 65)},
+		{Host: "h", Name: "a\x00b"},
+	}
+	for _, c := range bad {
+		if err := normalizeTarget(&c); err == nil {
+			t.Fatalf("accepted %+v", c)
+		}
+	}
+}
+
+func FuzzNormalizeTarget(f *testing.F) {
+	f.Add("icmp", "1.1.1.1", 0, "", "fast", 0)
+	f.Add("tcp", "10.0.0.5", 443, "gw", "", 30)
+	f.Add("", " ", -1, "\x00", "normal", 99999)
+	f.Fuzz(func(t *testing.T, typ, host string, port int, name, pace string, iv int) {
+		c := TargetCfg{Type: typ, Host: host, Port: port, Name: name, Pace: pace, IntervalSec: iv}
+		if normalizeTarget(&c) != nil {
 			return
 		}
-		// 只要求不 panic、不接受空 host
-		tt, err := parseListLine(line, typ)
-		if err == nil && tt.Host == "" {
-			t.Fatalf("accepted empty host: %q", line)
+		// whatever gets in must be something the prober can run and the UI can show
+		switch {
+		case c.Host == "" || strings.ContainsAny(c.Host, " \t\n"):
+			t.Fatalf("bad host accepted: %q", c.Host)
+		case c.Type != "icmp" && c.Type != "tcp":
+			t.Fatalf("bad type accepted: %q", c.Type)
+		case c.Type == "tcp" && (c.Port < 1 || c.Port > 65535):
+			t.Fatalf("bad port accepted: %d", c.Port)
+		case c.Name == "" || utf8.RuneCountInString(c.Name) > 64:
+			t.Fatalf("bad name accepted: %q", c.Name)
 		}
 	})
 }

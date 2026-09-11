@@ -50,12 +50,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("store init failed: %v", err)
 	}
-	os.MkdirAll(cfg.TargetsDir, 0o755)
-	if _, err := ingestLists(cfg.TargetsDir, store); err != nil {
-		log.Printf("ingest: %v", err)
-	}
 	if n, err := store.TargetRows(); err == nil && n == 0 {
-		if err := store.ImportTargets([]TargetCfg{demoTarget}); err == nil {
+		if _, err := store.CreateTarget(demoTarget); err == nil {
 			log.Printf("new database — seeded a demo target (www.google.com)")
 		}
 	}
@@ -67,7 +63,6 @@ func main() {
 	}
 	stop := make(chan struct{})
 	go store.flushLoop(stop)
-	go ingestLoop(cfg.TargetsDir, store, run, stop)
 	go housekeeping(cfg, store, stop)
 
 	mode := "read-only targets (restart with --edit to change them in the web UI)"
@@ -77,7 +72,7 @@ func main() {
 	log.Printf("fogping %s up · %d targets · %s · listening on %s · data in %s · %d-day retention",
 		version, len(run.Targets()), mode, cfg.Listen, cfg.DataDir, cfg.RetentionDays)
 	if len(run.Targets()) == 0 {
-		log.Printf(`no active targets — add them with --edit, or: echo "1.2.3.4 my-link" >> %s/ping.list`, cfg.TargetsDir)
+		log.Printf("no active targets — restart with --edit and add them in the web UI")
 	}
 	log.Printf("➜  open http://localhost%s for the smoke graph", portOf(cfg.Listen))
 	if len(users) == 0 {
