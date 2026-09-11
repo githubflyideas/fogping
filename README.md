@@ -10,8 +10,8 @@ No Perl, no RRDtool, no cron, no web server, no config file.
 
 ```bash
 mkdir -p ~/fogping && cd ~/fogping
-wget https://github.com/githubflyideas/fogping/releases/download/v1.1.1/fogping-v1.1.1-linux-amd64.tar.gz
-tar -xzf fogping-v1.1.1-linux-amd64.tar.gz
+wget https://github.com/githubflyideas/fogping/releases/download/v1.1.2/fogping-v1.1.2-linux-amd64.tar.gz
+tar -xzf fogping-v1.1.2-linux-amd64.tar.gz
 ./fogping --edit user=admin passwd=change-me
 ```
 
@@ -20,7 +20,8 @@ want to watch. A demo target (www.google.com) is already there so the very first
 start shows smoke. Once your targets are in, restart without `--edit`: the UI
 becomes read-only again.
 
-The rest of this page covers each step in detail.
+`./fogping --help` prints the common commands with copy-ready examples. The rest of
+this page covers each step in detail.
 
 ## Contents
 
@@ -28,7 +29,7 @@ The rest of this page covers each step in detail.
 - [Install](#install)
 - [Allow ICMP (ping) without root](#allow-icmp-ping-without-root)
 - [First start](#first-start)
-- [Command-line reference](#command-line-reference)
+- [Common commands](#common-commands)
 - [Managing targets](#managing-targets)
 - [Run as a systemd service](#run-as-a-systemd-service)
 - [Behind a reverse proxy](#behind-a-reverse-proxy)
@@ -52,10 +53,10 @@ The rest of this page covers each step in detail.
 
 ```bash
 sudo mkdir -p /opt/fogping && sudo chown "$USER": /opt/fogping && cd /opt/fogping
-wget https://github.com/githubflyideas/fogping/releases/download/v1.1.1/fogping-v1.1.1-linux-amd64.tar.gz
-wget https://github.com/githubflyideas/fogping/releases/download/v1.1.1/SHA256SUMS
-sha256sum --ignore-missing -c SHA256SUMS     # expect: fogping-v1.1.1-linux-amd64.tar.gz: OK
-tar -xzf fogping-v1.1.1-linux-amd64.tar.gz
+wget https://github.com/githubflyideas/fogping/releases/download/v1.1.2/fogping-v1.1.2-linux-amd64.tar.gz
+wget https://github.com/githubflyideas/fogping/releases/download/v1.1.2/SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS     # expect: fogping-v1.1.2-linux-amd64.tar.gz: OK
+tar -xzf fogping-v1.1.2-linux-amd64.tar.gz
 ./fogping --version
 ```
 
@@ -107,7 +108,7 @@ starts probing. The log looks like this:
 ```
 new database — seeded a demo target (www.google.com)
 [Demo] probing www.google.com
-fogping 1.1.0 up · 1 targets · targets editable in the web UI · listening on 0.0.0.0:8518 · data in ./data · 40-day retention
+fogping 1.1.2 up · 1 targets · targets editable in the web UI · listening on 0.0.0.0:8518 · data in ./data · 40-day retention
 ➜  open http://localhost:8518 for the smoke graph
 web login enabled for 1 user(s)
 ```
@@ -117,28 +118,76 @@ after that every target is probed on its own schedule
 (see [pace](#pace-and-interval)). Stop with Ctrl-C — pending data is flushed
 before exit.
 
-## Command-line reference
+## Common commands
 
+Everything below is also printed by `./fogping --help`, ready to copy.
+
+Try it out — the web UI is open to anyone who can reach port 8518 on any of the
+host's addresses:
+
+```bash
+./fogping
 ```
-./fogping [--edit] [--localhost] [--days=N] [user=NAMES passwd=PASSWORDS]
+
+Require a login (recommended). Logins last 7 days; sessions live in memory, so a
+restart logs everyone out:
+
+```bash
+./fogping user=admin passwd=change-me
+```
+
+Several users — names and passwords are comma-separated and paired by position
+(`alice` logs in with `alice-pw`, `bob` with `bob-pw`):
+
+```bash
+./fogping user=alice,bob passwd=alice-pw,bob-pw
+```
+
+Add, edit or delete targets — start with `--edit`, change them in the web UI,
+then press Ctrl-C and start again without `--edit` so the UI is read-only:
+
+```bash
+./fogping --edit user=admin passwd=change-me
+```
+
+`--edit` refuses to start without a login (or `--localhost`): an open, writable UI
+would let anyone make this host ping or connect to arbitrary addresses.
+
+Keep 90 days of history instead of the default 40 (raw samples are always kept for
+2 days; the UI hides range buttons longer than the history):
+
+```bash
+./fogping --days=90 user=admin passwd=change-me
+```
+
+Run in the background with a log file, and stop it again (for a proper service,
+see [systemd](#run-as-a-systemd-service)):
+
+```bash
+nohup ./fogping user=admin passwd=change-me >> fogping.log 2>&1 &
+pkill -x fogping
+```
+
+Listen on `127.0.0.1:8518` only, when a reverse proxy in front handles access
+(see [reverse proxy](#behind-a-reverse-proxy)):
+
+```bash
+./fogping --localhost
+./fogping --localhost --edit
+```
+
+Print the version:
+
+```bash
 ./fogping --version
 ```
 
-| Argument | Default | Meaning |
-|---|---|---|
-| `user=a,b passwd=x,y` | none | Turns on the login page. Names and passwords are comma-separated and paired by position (`a`/`x`, `b`/`y`). Without them the UI is open to anyone who can reach the port. |
-| `--edit` | off | Allows adding, editing and deleting targets in the web UI. Refuses to start unless a login is set or `--localhost` is used, because an open writable UI would let anyone make this host ping or connect to arbitrary addresses. |
-| `--localhost` | off | Listen on `127.0.0.1:8518` instead of `0.0.0.0:8518`. Use it behind a reverse proxy. |
-| `--days=N` | 40 | Days of hourly history to keep. Raw samples are always kept for 2 days. The UI hides range buttons longer than this. |
-| `--version` | | Print the version and exit. |
+Arguments can come in any order, and the port is always 8518. Quote passwords
+that contain shell characters: `passwd='p@ss;word'`.
 
-Arguments can come in any order. Quote passwords that contain shell characters
-(`passwd='p@ss;word'`). Logins last 7 days; sessions are held in memory, so every
-restart logs everyone out.
-
-Note that anything on the command line — including the password — is visible to
-other local users (`ps`, `systemctl show`). If that matters on your host, run with
-`--localhost` and let a reverse proxy handle authentication.
+Anything on the command line — including the password — is visible to other
+local users (`ps`, `systemctl show`). If that matters on your host, use
+`--localhost` and let the reverse proxy handle authentication.
 
 ## Managing targets
 
@@ -150,16 +199,17 @@ Without `--edit` nothing — not the UI, not the API — can change a target.
 
 1. Start with `--edit` (and a login): `./fogping --edit user=admin passwd=change-me`
 2. Click **✎ targets** in the top right.
-3. Add a target:
+3. Fill in the form and press **+ add**. For example:
 
-   | Field | Notes |
-   |---|---|
-   | Type | **PING** (ICMP echo, IPv4) or **TCP** (time to complete a TCP connect). |
-   | Host | Hostname or IP address. Hostnames are resolved every round. |
-   | Port | TCP only, 1–65535. |
-   | Name | Optional; defaults to the host (`host:port` for TCP). Up to 64 characters, must be unique. This is what the chart buttons show. |
-   | Pace | `normal` (default), `fast` or `slow` — see below. |
-   | Interval | Optional, in seconds (1–86400). Overrides the pace's interval. |
+   - PING, host `1.1.1.1`, name `Cloudflare`, pace `fast` — pinged every 15 s,
+     30 packets per round.
+   - TCP, host `api.example.com`, port `443` — measures how long a TCP connect
+     takes; shown as `api.example.com:443` since no name was given.
+   - PING, host `10.0.0.1`, name `Gateway`, interval `10` — every 10 s, overriding
+     the pace.
+
+   PING targets are IPv4; hostnames are resolved every round. The name is what the
+   chart buttons show: optional, up to 64 characters, unique.
 
 4. **edit** changes a target in place; **delete** stops probing it.
 
@@ -329,7 +379,7 @@ so it comes back. The old daily table is dropped (hourly data covers the same sp
 | Symptom | Cause / fix |
 |---|---|
 | PING targets at 100% loss, log shows `cannot open an ICMP socket` | ICMP permission missing — see [Allow ICMP](#allow-icmp-ping-without-root). |
-| `--edit needs a login (user=... passwd=...) or --localhost` | By design: add a login, or bind to localhost behind a proxy. |
+| `--edit needs a login or --localhost` | By design: add a login, or bind to localhost behind a proxy. |
 | Saving a target says `read-only: restart fogping with --edit` | fogping was started without `--edit`. |
 | Saving a target says `cross-origin request refused` | Your proxy does not forward `Host` — see [reverse proxy](#behind-a-reverse-proxy). |
 | `bind: address already in use` | Another fogping is already running (e.g. the service, while you start `--edit` by hand). |

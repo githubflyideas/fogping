@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -21,8 +22,26 @@ func main() {
 	days := flag.Int("days", 40, "days of history to keep; UI hides windows beyond this")
 	edit := flag.Bool("edit", false, "allow adding/editing/deleting targets from the web UI (default: read-only)")
 	showVer := flag.Bool("version", false, "print version")
-	flagArgs, authArgs := splitArgs(os.Args[1:])
-	flag.CommandLine.Parse(flagArgs)
+	args := os.Args[1:]
+	for _, a := range args {
+		if a == "help" { // `fogping help` would otherwise be rejected as a bad auth arg
+			printHelp(os.Stdout)
+			return
+		}
+	}
+	// Our own help (stdout, examples first) instead of the flag package's dump on
+	// stderr; on a bad flag, one line and a pointer — not the whole help.
+	flag.CommandLine.Init("fogping", flag.ContinueOnError)
+	flag.CommandLine.SetOutput(io.Discard)
+	flagArgs, authArgs := splitArgs(args)
+	if err := flag.CommandLine.Parse(flagArgs); err != nil {
+		if err == flag.ErrHelp {
+			printHelp(os.Stdout)
+			return
+		}
+		fmt.Fprintf(os.Stderr, "fogping: %v\nRun './fogping --help' for examples.\n", err)
+		os.Exit(2)
+	}
 	if *showVer {
 		fmt.Println("fogping", version)
 		return
@@ -34,7 +53,7 @@ func main() {
 	}
 	users, err := parseAuthArgs(append(authArgs, flag.Args()...))
 	if err != nil {
-		log.Fatalf("bad auth args: %v", err)
+		log.Fatalf("%v\nRun './fogping --help' for examples.", err)
 	}
 	if *localOnly {
 		cfg.Listen = "127.0.0.1" + portOf(cfg.Listen)
@@ -43,7 +62,7 @@ func main() {
 	// An open, writable UI would let anyone who can reach the port make this host
 	// ping or TCP-connect to arbitrary addresses. Refuse rather than warn.
 	if cfg.Editable && len(users) == 0 && !*localOnly {
-		log.Fatalf("--edit needs a login (user=... passwd=...) or --localhost behind your own auth proxy")
+		log.Fatalf("--edit needs a login or --localhost, e.g.:  ./fogping --edit user=admin passwd=change-me")
 	}
 
 	store, err := NewStore(cfg.DataDir, nil)
