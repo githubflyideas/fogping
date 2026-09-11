@@ -6,6 +6,10 @@ fogping draws SmokePing-style smoke graphs of latency and packet loss, from one
 static Go binary with an embedded SQLite database, a built-in web UI and login.
 No Perl, no RRDtool, no cron, no web server, no config file.
 
+![window: a 40-minute congestion event — smoke spreads, bursts marked ◆](docs/hero15.png)
+![window: a 40-minute congestion event — smoke spreads, bursts marked ◆](docs/hero17.png)
+![window: a 40-minute congestion event — smoke spreads, bursts marked ◆](docs/hero16.png)
+
 ## Quick start
 
 ```bash
@@ -22,6 +26,7 @@ becomes read-only again.
 
 `./fogping --help` prints the common commands with copy-ready examples. The rest of
 this page covers each step in detail.
+
 
 ## Contents
 
@@ -405,9 +410,6 @@ tarball is linked statically.
 -----------------------------------------------------------
 
 🌐 [English](#english) · [中文](#中文) · [Español](#español) · [Français](#français) · [Português](#português) · [Deutsch](#deutsch) · [Русский](#русский) · [日本語](#日本語) · [한국어](#한국어) · [Bahasa Indonesia](#bahasa-indonesia) · [Tiếng Việt](#tiếng-việt) · [العربية](#العربية) · [हिन्दी](#हिन्दी) · [বাংলা](#বাংলা) · [اردو](#اردو) · [Türkçe](#türkçe) · [ไทย](#ไทย)
-![window: a 40-minute congestion event — smoke spreads, bursts marked ◆](docs/hero15.png)
-![window: a 40-minute congestion event — smoke spreads, bursts marked ◆](docs/hero17.png)
-![window: a 40-minute congestion event — smoke spreads, bursts marked ◆](docs/hero16.png)
 
 
 ## English
