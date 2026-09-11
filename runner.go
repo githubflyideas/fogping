@@ -6,8 +6,8 @@ import (
 	"sync"
 )
 
-// Runner owns the set of running probe loops, keyed by target id. Every change —
-// web edit, list import — goes through Reload, which diffs the DB against what is
+// Runner owns the set of running probe loops, keyed by target id. Every change
+// goes through Reload, which diffs the DB against what is
 // running. One mutex, one writer path; the web handlers only read snapshots.
 type Runner struct {
 	mu    sync.Mutex
