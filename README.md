@@ -15,7 +15,7 @@ No Perl, no RRDtool, no cron, no web server, no config file.
 mkdir -p ~/fogping && cd ~/fogping
 wget https://github.com/githubflyideas/fogping/releases/download/v1.1.2/fogping-v1.1.2-linux-amd64.tar.gz
 tar -xzf fogping-v1.1.2-linux-amd64.tar.gz
-./fogping --edit user=admin passwd=change-me
+./fogping --edit user=admin passwd=admin1234
 ```
 
 Open `http://<server>:8518`, log in, click **✎ targets** and add the hosts you
