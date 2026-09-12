@@ -27,6 +27,8 @@ click **✎ targets** and add the hosts you want to watch
 ./fogping user=admin passwd=admin1234
 restart without `--edit`: the UI becomes read-only again.
 
+
+
 `./fogping --help` prints the common commands with copy-ready examples. The rest of
 this page covers each step in detail.
 
