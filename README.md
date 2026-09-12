@@ -24,8 +24,9 @@ A demo target (www.google.com) is already there so the very first start shows sm
 
 click **✎ targets** and add the hosts you want to watch
 
-./fogping user=admin passwd=admin1234
+
 restart without `--edit`: the UI becomes read-only again.
+./fogping user=admin passwd=admin1234
 
 
 
