@@ -1,8 +1,6 @@
 A smokeping-like network tool
 
------One binary file-----
-
-Just scp and run
+-----One binary file，Just scp and run-----
 
 one static Go binary with an embedded SQLite database, a built-in web UI and login.
 No Perl, no RRDtool, no cron, no web server, no config file.
