@@ -26,6 +26,7 @@ click **✎ targets** and add the hosts you want to watch
 
 
 restart without `--edit`: the UI becomes read-only again.
+
 ./fogping user=admin passwd=admin1234
 
 
