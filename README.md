@@ -24,7 +24,7 @@ Open `http://localhost:8518`, log in(user=admin passwd=admin1234 )
 #click **✎ targets** and add the hosts you want to watch
 ```
 ```bash
-#restart without --edit: removes the edit controls by default for safety.
+#restart fogping without --edit: strips all editing capabilities to keep your dashboard secure before sharing the public URL.
 ./fogping user=admin passwd=admin1234
 ```
 
