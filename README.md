@@ -25,7 +25,7 @@ Open `http://localhost:8518`, log in(user=admin passwd=admin1234 )
 ```
 ```bash
 #restart fogping without --edit: strips all editing capabilities to keep your dashboard secure before sharing the public URL.
-./fogping user=admin passwd=admin1234
+./fogping user=admin,alice,bob passwd=admin1234,alice-pw,bob-pw
 ```
 
 `./fogping --help` prints the common commands with copy-ready examples. The rest of
