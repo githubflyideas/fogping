@@ -31,11 +31,6 @@ Open `http://localhost:8518`, log in(user=admin passwd=admin1234 )
 `./fogping --help` prints the common commands with copy-ready examples. The rest of
 this page covers each step in detail.
 
-Quick Comparison
-
-<img width="1410" height="731" alt="image" src="https://github.com/user-attachments/assets/bdc11df6-6cdf-4c38-ab3c-f17f656aea2c" />
-
-
 ## Contents
 
 - [Requirements](#requirements)
