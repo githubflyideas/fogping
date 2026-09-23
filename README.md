@@ -24,7 +24,7 @@ Open `http://localhost:8518`, log in(user=admin passwd=admin1234 )
 #click **✎ targets** and add the hosts you want to watch
 ```
 ```bash
-#restart without `--edit`: the UI becomes read-only again.
+#restart without --edit: removes the edit controls by default for safety.
 ./fogping user=admin passwd=admin1234
 ```
 
