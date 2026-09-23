@@ -17,6 +17,9 @@ wget https://github.com/githubflyideas/fogping/releases/download/v1.1.2/fogping-
 tar -xzf fogping-v1.1.2-linux-amd64.tar.gz
 ./fogping --edit user=admin passwd=admin1234
 ```
+restart without `--edit`: the UI becomes read-only again.
+
+./fogping user=admin passwd=admin1234
 
 Open `http://<server>:8518`, log in(user=admin passwd=admin1234 ),
 
