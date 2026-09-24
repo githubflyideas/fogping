@@ -1,6 +1,6 @@
 A smokeping-like network tool
 
------One binary file，embedded SQLite database, Web UI,Just scp and run-----
+-----One binary file，embedded SQLite database, Web UI,just scp and run-----
 
 No Perl, no RRDtool, no cron, no web server, no config file.
 
