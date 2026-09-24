@@ -18,6 +18,7 @@ tar -xzf fogping-v1.1.2-linux-amd64.tar.gz
 ./fogping --edit user=admin passwd=admin1234
 ```
 Open `http://localhost:8518`, log in(user=admin passwd=admin1234 )
+then watch your first puff of network smoke.
 
 ```bash
 #A demo target (www.google.com) is already there so the very first start shows smoke.
