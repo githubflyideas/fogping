@@ -1,8 +1,7 @@
 A smokeping-like network tool
 
------One binary file，Just scp and run-----
+-----One binary file，embedded SQLite database, Web UI,Just scp and run-----
 
-one static Go binary with an embedded SQLite database, a built-in web UI and login.
 No Perl, no RRDtool, no cron, no web server, no config file.
 
 ![window: a 40-minute congestion event — smoke spreads, bursts marked ◆](docs/hero15.png)
