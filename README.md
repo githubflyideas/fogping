@@ -1,7 +1,7 @@
 > ### A SmokePing-like network latency tool.
 > **One binary, embedded SQLite, Web UI—just `scp` and run.**
 > 
-> *🚫 No Perl. No RRDtool. No Cron. No Web Server. No Config Files.*
+> *🚫 No Perl. No RRDtool. No Web Server. No Config Files.*
 > 
 ![window: a 40-minute congestion event — smoke spreads, bursts marked ◆](docs/hero15.png)
 ![window: a 40-minute congestion event — smoke spreads, bursts marked ◆](docs/hero17.png)
