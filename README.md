@@ -31,8 +31,41 @@ Open `http://localhost:8518`, log in(user=admin passwd=admin1234 )
 `./fogping --help` prints the common commands with copy-ready examples. The rest of
 this page covers each step in detail.
 
+## Docker
+
+Images for linux/amd64, arm64 and arm/v7 (Raspberry Pi, NAS, RouterOS). Data lives in `/data`.
+
+```bash
+# first run: --edit so you can add targets in the web UI
+docker run -d --name fogping --restart unless-stopped \
+  --user $(id -u):$(id -g) -p 8518:8518 \
+  -v ~/fogping:/data githubflyideas/fogping \
+  --edit user=admin passwd=change-me
+
+# done editing: recreate without --edit (data in ~/fogping is kept)
+docker rm -f fogping
+docker run -d --name fogping --restart unless-stopped \
+  --user $(id -u):$(id -g) -p 8518:8518 \
+  -v ~/fogping:/data githubflyideas/fogping \
+  user=admin passwd=change-me
+```
+
+Everything after the image name is passed to fogping as-is (`--edit`, `--days=90`,
+`user=` / `passwd=`). Where you can set environment variables but not a command
+(Docker Desktop, NAS container managers, RouterOS), use these instead:
+
+| Variable | Same as |
+|---|---|
+| `FOGPING_EDIT=1` | `--edit` |
+| `FOGPING_USER=admin` / `FOGPING_PASSWD=change-me` | `user=admin passwd=change-me` (comma-separated for several) |
+| `FOGPING_DAYS=90` | `--days=90` |
+
+`--edit` without a login is refused, as on bare metal. PING targets work without
+extra capabilities on Docker 20.10+; `--user` keeps the mounted directory writable by you.
+
 ## Contents
 
+- [Docker](#docker)
 - [Requirements](#requirements)
 - [Install](#install)
 - [Allow ICMP (ping) without root](#allow-icmp-ping-without-root)

@@ -1,0 +1,7 @@
+.git
+.github
+docs
+*.md
+!README.md
+Dockerfile
+data
