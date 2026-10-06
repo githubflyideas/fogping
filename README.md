@@ -37,17 +37,11 @@ Images for linux/amd64, arm64 and arm/v7 (Raspberry Pi, NAS, RouterOS). Data liv
 
 ```bash
 # first run: --edit so you can add targets in the web UI
-docker run -d --name fogping --restart unless-stopped \
-  --user $(id -u):$(id -g) -p 8518:8518 \
-  -v ~/fogping:/data githubflyideas/fogping \
-  --edit user=admin passwd=change-me
+docker run -d --name fogping --restart unless-stopped   -p 8518:8518   -v fogping_data:/data   githubflyideas/fogping:latest   --edit user=admin passwd=change-me
 
 # done editing: recreate without --edit (data in ~/fogping is kept)
 docker rm -f fogping
-docker run -d --name fogping --restart unless-stopped \
-  --user $(id -u):$(id -g) -p 8518:8518 \
-  -v ~/fogping:/data githubflyideas/fogping \
-  user=admin passwd=change-me
+docker run -d --name fogping --restart unless-stopped   -p 8518:8518   -v fogping_data:/data   githubflyideas/fogping:latest            user=admin passwd=change-me
 ```
 
 Everything after the image name is passed to fogping as-is (`--edit`, `--days=90`,
