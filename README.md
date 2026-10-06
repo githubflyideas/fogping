@@ -28,8 +28,6 @@ Open `http://localhost:8518`, log in(user=admin passwd=admin1234 )
 ./fogping user=admin,alice,bob passwd=admin1234,alice-pw,bob-pw
 ```
 
-`./fogping --help` prints the common commands with copy-ready examples. The rest of
-this page covers each step in detail.
 
 ## Docker
 
@@ -43,6 +41,8 @@ docker run -d --name fogping --restart unless-stopped   -p 8518:8518   -v fogpin
 docker rm -f fogping
 docker run -d --name fogping --restart unless-stopped   -p 8518:8518   -v fogping_data:/data   githubflyideas/fogping:latest            user=admin passwd=change-me
 ```
+`./fogping --help` prints the common commands with copy-ready examples. The rest of
+this page covers each step in detail.
 
 Everything after the image name is passed to fogping as-is (`--edit`, `--days=90`,
 `user=` / `passwd=`). Where you can set environment variables but not a command
