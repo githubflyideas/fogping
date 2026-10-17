@@ -128,6 +128,18 @@
   .ro .l { font-family:var(--sans); font-size:var(--fs-micro); font-weight:600;
            color:var(--dim); letter-spacing:.13em; margin-top:4px; text-transform:uppercase; }
   .sp { flex:1; }
+  /* Header sponsor slot (234x60). sponsor.js centres it between the title block
+     and the controls when it fits (sp-in), or gives it its own row (sp-row). */
+  .hdr-sp { flex:none; align-self:center; width:234px; height:60px; margin:0 auto; }
+  header.sp-in > .hdr-actions, header.sp-in > .hdr-right { margin-left:0 !important; }
+  header.sp-notag > .tag { display:none; }
+  header.sp-row > .hdr-sp { order:99; flex-basis:100%; width:auto; display:flex; justify-content:center; margin:0; }
+  .hdr-sp-def { box-sizing:border-box; width:234px; height:60px; display:flex; flex-direction:column;
+                justify-content:center; align-items:center; gap:4px; border:1px dashed var(--line);
+                border-radius:6px; background:var(--panel); color:var(--ink); text-decoration:none;
+                font-family:var(--sans); font-size:var(--fs-small); }
+  .hdr-sp-def:hover { border-color:var(--phos); color:var(--phos); }
+  .hdr-sp-def small { font-size:var(--fs-micro); font-weight:700; letter-spacing:.16em; color:var(--dim); }
   footer { margin-top:14px; color:var(--dim); font-size:var(--fs-small);
            display:flex; gap:14px; flex-wrap:wrap; align-items:baseline; }
   #conclusion { color:var(--ink); font-family:var(--mono); font-weight:600;
@@ -171,7 +183,8 @@
 <header>
   <div class="mark">fogping <span class="brand-led"></span></div>
   <div class="tag">One binary. One graph. One metric: Latency.</div>
-  <div style="margin-left:auto; display:flex; gap:8px">
+  <div class="hdr-sp" id="sponsorTop"><a class="hdr-sp-def" href="https://github.com/githubflyideas/ads-sponsor" target="_blank" rel="noopener"><small>SPONSOR</small><span>Sponsor slot — your ad here</span></a></div>
+  <div class="hdr-right" style="margin-left:auto; display:flex; gap:8px">
     <button class="pill" id="editBtn" title="add, edit or remove targets" style="display:none">✎ targets</button>
     <button class="pill" id="themeBtn" title="switch theme">◐ <span id="themeName">dark</span></button>
   </div>
@@ -243,10 +256,9 @@
 </footer>
 
 <div class="promos">
-  <div class="promo sponsor" id="sponsorSlot">
-    <div class="promo-h">SPONSOR <span id="ver"></span></div>
+  <div class="promo">
     <div class="promo-b">
-      <span>This slot is for one VPS / IDC / network sponsor — your GIF here.</span>
+      <span class="promo-h" style="margin:0">fogping <span id="ver"></span></span>
       <span style="display:flex; gap:16px; align-items:center;">
         <a href="https://github.com/githubflyideas/fogping" target="_blank" rel="noopener">Powered by Fogping</a>
         <a href="https://github.com/githubflyideas/fogping" target="_blank" rel="noopener">★ Star on GitHub</a>

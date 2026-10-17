@@ -1,4 +1,4 @@
-// Remote sponsor carousel.
+// Header sponsor carousel (234x60).
 //
 // The sponsor slot can show up to four image slides listed in a manifest kept
 // in https://github.com/githubflyideas/ads-sponsor, so the slides can change
@@ -43,50 +43,70 @@
     return Promise.race([p, new Promise(function (_, bad) { setTimeout(bad, ms); })]);
   }
 
-  var CSS = '.spc{position:relative;max-width:728px}' +
-    '.spc-track{position:relative;aspect-ratio:728/90;border-radius:8px;overflow:hidden;background:var(--panel)}' +
+  var SLOT_W = 234, SLOT_H = 60;
+  var CSS = '.spc{position:relative;width:234px;height:60px;border-radius:6px;overflow:hidden;background:var(--panel)}' +
     '.spc-slide{position:absolute;inset:0;opacity:0;transition:opacity .45s ease;pointer-events:none;display:block}' +
     '.spc-slide.on{opacity:1;pointer-events:auto}' +
     '.spc-slide img{width:100%;height:100%;object-fit:cover;display:block}' +
-    '.spc-dots{display:flex;gap:7px;margin-top:8px;align-items:center}' +
-    '.spc-dot{width:7px;height:7px;padding:0;border-radius:50%;border:0;cursor:pointer;background:var(--line);opacity:.9}' +
-    '.spc-dot.on{background:var(--phos)}' +
-    '.spc-title{color:var(--dim);font-size:var(--fs-small,12px);margin-left:8px}';
+    '.spc-dots{position:absolute;right:5px;top:4px;display:flex;gap:4px;padding:2px 4px;border-radius:6px;background:rgba(0,0,0,.35)}' +
+    '.spc-dot{width:5px;height:5px;padding:0;border-radius:50%;border:0;cursor:pointer;background:rgba(255,255,255,.55)}' +
+    '.spc-dot.on{background:#fff}';
+
+  // Header placement: centred in the gap between the title block and the
+  // controls when it fits (dropping the tagline if that is what it takes),
+  // otherwise on its own row under them. Never squeezes or overlaps controls.
+  function placeInHeader(slot) {
+    var h = slot.parentElement;
+    if (!h || h.tagName !== 'HEADER') return;
+    var raf = 0;
+    function room() {
+      var gap = parseFloat(getComputedStyle(h).columnGap) || 14, used = 0, n = 0;
+      Array.prototype.forEach.call(h.children, function (e) {
+        if (e === slot || e.offsetParent === null) return;
+        used += e.getBoundingClientRect().width; n++;
+      });
+      return h.clientWidth - used - gap * n >= SLOT_W + 2 * gap;
+    }
+    function fit() {
+      raf = 0;
+      // Measure with the slot out of the way (own row), so nothing is squeezed.
+      h.classList.remove('sp-in', 'sp-notag');
+      h.classList.add('sp-row');
+      // Then: beside the title; or beside it with the tagline dropped (a wide
+      // custom logo at ~1280px); or, failing both, on its own row.
+      if (!room()) {
+        h.classList.add('sp-notag');
+        if (!room()) { h.classList.remove('sp-notag'); return; }
+      }
+      h.classList.remove('sp-row');
+      h.classList.add('sp-in');
+    }
+    function later() { if (!raf) raf = requestAnimationFrame(fit); }
+    window.addEventListener('resize', later);
+    document.addEventListener('i18n', later);
+    if (window.ResizeObserver) {
+      var ro = new ResizeObserver(later);
+      Array.prototype.forEach.call(h.children, function (e) { if (e !== slot) ro.observe(e); });
+    }
+    fit();
+  }
 
   function build(slot, slides) {
     var st = document.createElement('style');
     st.textContent = CSS;
     document.head.appendChild(st);
 
-    var box = document.createElement('div');
-    box.className = 'promo sponsor';
-    box.id = 'sponsorRemote';
-    var head = slot.querySelector('.promo-h');
-    if (head) box.appendChild(head.cloneNode(true));
-    // the cloned header must not duplicate an id (#ver) the page still writes to
-    box.querySelectorAll('[id]').forEach(function (e) {
-      var orig = document.getElementById(e.id);
-      e.removeAttribute('id');
-      if (orig && orig !== e) {
-        new MutationObserver(function () { e.textContent = orig.textContent; })
-          .observe(orig, { childList: true, characterData: true, subtree: true });
-        e.textContent = orig.textContent;
-      }
-    });
-
     var car = document.createElement('div'); car.className = 'spc';
-    var track = document.createElement('div'); track.className = 'spc-track';
     var dots = document.createElement('div'); dots.className = 'spc-dots';
-    var title = document.createElement('span'); title.className = 'spc-title';
     var els = [], ds = [];
     slides.forEach(function (s, i) {
       var a = document.createElement(s.link ? 'a' : 'div');
       a.className = 'spc-slide';
       if (s.link) { a.href = s.link; a.target = '_blank'; a.rel = 'noopener noreferrer sponsored'; }
       s.img.alt = s.alt;
-      if (s.title) a.title = s.title;
+      if (s.title || s.alt) a.title = s.title || s.alt;
       a.appendChild(s.img);
-      track.appendChild(a); els.push(a);
+      car.appendChild(a); els.push(a);
       if (slides.length > 1) {
         var d = document.createElement('button');
         d.type = 'button'; d.className = 'spc-dot';
@@ -95,16 +115,13 @@
         dots.appendChild(d); ds.push(d);
       }
     });
-    dots.appendChild(title);
-    car.appendChild(track); car.appendChild(dots);
-    box.appendChild(car);
+    if (ds.length) car.appendChild(dots);
 
     var cur = 0, paused = false;
     function show(i) {
       cur = i;
       els.forEach(function (e, j) { e.classList.toggle('on', j === i); });
       ds.forEach(function (e, j) { e.classList.toggle('on', j === i); });
-      title.textContent = slides[i].title || '';
     }
     show(0);
     if (slides.length > 1) {
@@ -116,8 +133,9 @@
         if (!paused && !document.hidden) show((cur + 1) % slides.length);
       }, ROTATE_MS);
     }
-    slot.parentNode.insertBefore(box, slot);
-    slot.style.display = 'none';
+    // Swap the built-in text for the carousel only now that images are loaded.
+    while (slot.firstChild) slot.removeChild(slot.firstChild);
+    slot.appendChild(car);
   }
 
   // Fetch one manifest and preload its images. Resolves to the slides whose
@@ -164,12 +182,13 @@
   }
 
   // Three layers: the copy this program cached from GitHub, then GitHub
-  // directly from the browser, then the built-in text that is already on the
-  // page (nothing to do).
+  // directly from the browser, then the built-in text that is already in the
+  // slot (nothing to do).
   window.loadSponsor = function (product) {
-    if (!/^[a-z0-9-]+$/.test(product)) return;
-    var slot = document.getElementById('sponsorSlot');
-    if (!slot || !window.fetch || !window.URL) return;
+    var slot = document.getElementById('sponsorTop');
+    if (!slot) return;
+    placeInHeader(slot);
+    if (!/^[a-z0-9-]+$/.test(product) || !window.fetch || !window.URL) return;
     tryManifest('/sponsor/sponsors.json', true)
       .then(function (ok) {
         return ok.length ? ok : tryManifest(BASE + product + '/sponsors.json', false);
