@@ -11,9 +11,9 @@
 
 ```bash
 mkdir -p ~/fogping && cd ~/fogping
-wget https://github.com/githubflyideas/fogping/releases/download/v1.1.2/fogping-v1.1.2-linux-amd64.tar.gz
+wget https://github.com/githubflyideas/fogping/releases/download/v1.2.0/fogping-v1.2.0-linux-amd64.tar.gz
 
-tar -xzf fogping-v1.1.2-linux-amd64.tar.gz
+tar -xzf fogping-v1.2.0-linux-amd64.tar.gz
 ./fogping --edit user=admin passwd=admin1234
 ```
 Open `http://localhost:8518`, log in(user=admin passwd=admin1234 )
@@ -88,10 +88,10 @@ extra capabilities on Docker 20.10+; `--user` keeps the mounted directory writab
 
 ```bash
 sudo mkdir -p /opt/fogping && sudo chown "$USER": /opt/fogping && cd /opt/fogping
-wget https://github.com/githubflyideas/fogping/releases/download/v1.1.2/fogping-v1.1.2-linux-amd64.tar.gz
-wget https://github.com/githubflyideas/fogping/releases/download/v1.1.2/SHA256SUMS
-sha256sum --ignore-missing -c SHA256SUMS     # expect: fogping-v1.1.2-linux-amd64.tar.gz: OK
-tar -xzf fogping-v1.1.2-linux-amd64.tar.gz
+wget https://github.com/githubflyideas/fogping/releases/download/v1.2.0/fogping-v1.2.0-linux-amd64.tar.gz
+wget https://github.com/githubflyideas/fogping/releases/download/v1.2.0/SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS     # expect: fogping-v1.2.0-linux-amd64.tar.gz: OK
+tar -xzf fogping-v1.2.0-linux-amd64.tar.gz
 ./fogping --version
 ```
 
