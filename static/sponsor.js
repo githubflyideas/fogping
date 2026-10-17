@@ -1,6 +1,6 @@
 // Remote sponsor carousel.
 //
-// The sponsor slot can show up to three image slides listed in a manifest kept
+// The sponsor slot can show up to four image slides listed in a manifest kept
 // in https://github.com/githubflyideas/ads-sponsor, so the slides can change
 // without a new release. The browser fetches the manifest directly; the server
 // never phones home. Anything short of a manifest that parses and at least one
@@ -11,7 +11,7 @@
 (function () {
   'use strict';
   var BASE = 'https://raw.githubusercontent.com/githubflyideas/ads-sponsor/main/';
-  var TIMEOUT_MS = 3000, ROTATE_MS = 5500, MAX = 3;
+  var TIMEOUT_MS = 3000, ROTATE_MS = 5500, MAX = 4;
 
   function httpURL(v, base, httpsOnly) {
     if (typeof v !== 'string' || !v.trim()) return null;
