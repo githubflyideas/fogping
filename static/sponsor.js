@@ -2,9 +2,10 @@
 //
 // The sponsor slot can show up to four image slides listed in a manifest kept
 // in https://github.com/githubflyideas/ads-sponsor, so the slides can change
-// without a new release. The browser fetches the manifest directly; the server
-// never phones home. Anything short of a manifest that parses and at least one
-// image that actually loads leaves the built-in sponsor text exactly as it was:
+// without a new release. The program caches that manifest and its images and
+// serves them at /sponsor/; if that copy is empty the browser tries GitHub
+// directly. Anything short of a manifest that parses and at least one image
+// that actually loads leaves the built-in sponsor text exactly as it was:
 // offline, intranet, blocked, slow, malformed — all fail closed.
 //
 // Usage: loadSponsor('pingping')
@@ -119,35 +120,61 @@
     slot.style.display = 'none';
   }
 
-  window.loadSponsor = function (product) {
-    if (!/^[a-z0-9-]+$/.test(product)) return;
-    var slot = document.getElementById('sponsorSlot');
-    if (!slot || !window.fetch || !window.URL) return;
-    var url = BASE + product + '/sponsors.json';
+  // Fetch one manifest and preload its images. Resolves to the slides whose
+  // image actually loaded — possibly none. Never rejects.
+  function tryManifest(url, local) {
     var ctl = window.AbortController ? new AbortController() : null;
     var timer = setTimeout(function () { if (ctl) ctl.abort(); }, TIMEOUT_MS);
-    fetch(url, { signal: ctl ? ctl.signal : undefined, credentials: 'omit',
-                 referrerPolicy: 'no-referrer', cache: 'no-cache' })
+    var opts = { signal: ctl ? ctl.signal : undefined, cache: 'no-cache',
+                 credentials: local ? 'same-origin' : 'omit',
+                 referrerPolicy: 'no-referrer' };
+    return fetch(url, opts)
       .then(function (r) { if (!r.ok) throw 0; return r.json(); })
       .then(function (m) {
         clearTimeout(timer);
+        var base = new URL(url, location.href).href;
         var list = m && Array.isArray(m.slides) ? m.slides : [];
         var want = [];
         for (var i = 0; i < list.length && want.length < MAX; i++) {
           var s = list[i] || {};
-          var img = httpURL(s.image, url, true);
+          // Local images are same-origin paths served by this program;
+          // remote ones must be https.
+          var img = local ? sameOrigin(s.image, base) : httpURL(s.image, base, true);
           if (!img) continue;
-          want.push({ src: img, link: httpURL(s.link, url, false),
+          want.push({ src: img, link: httpURL(s.link, base, false),
                       alt: str(s.alt, 200), title: str(s.title, 120) });
         }
-        if (!want.length) return;
+        if (!want.length) return [];
         return withTimeout(settle(want.map(function (w) { return loadImg(w.src); })), TIMEOUT_MS)
           .then(function (imgs) {
             var ok = [];
             want.forEach(function (w, i) { if (imgs[i]) { w.img = imgs[i]; ok.push(w); } });
-            if (ok.length) build(slot, ok);
+            return ok;
           });
       })
-      .catch(function () { clearTimeout(timer); /* keep the built-in text */ });
+      .catch(function () { clearTimeout(timer); return []; });
+  }
+  function sameOrigin(v, base) {
+    if (typeof v !== 'string' || !v.trim()) return null;
+    try {
+      var u = new URL(v.trim(), base);
+      if (u.origin === location.origin && u.pathname.indexOf('/sponsor/img/') === 0) return u.href;
+    } catch (e) {}
+    return null;
+  }
+
+  // Three layers: the copy this program cached from GitHub, then GitHub
+  // directly from the browser, then the built-in text that is already on the
+  // page (nothing to do).
+  window.loadSponsor = function (product) {
+    if (!/^[a-z0-9-]+$/.test(product)) return;
+    var slot = document.getElementById('sponsorSlot');
+    if (!slot || !window.fetch || !window.URL) return;
+    tryManifest('/sponsor/sponsors.json', true)
+      .then(function (ok) {
+        return ok.length ? ok : tryManifest(BASE + product + '/sponsors.json', false);
+      })
+      .then(function (ok) { if (ok.length) build(slot, ok); })
+      .catch(function () { /* keep the built-in text */ });
   };
 })();

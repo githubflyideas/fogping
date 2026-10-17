@@ -777,4 +777,4 @@ apache 2.0
 
 ## Sponsor slot
 
-The sponsor box in the web UI loads up to four images from [githubflyideas/ads-sponsor](https://github.com/githubflyideas/ads-sponsor) on GitHub (fetched by your browser, not by the server); if GitHub is unreachable it shows the built-in sponsor text instead.
+The sponsor box in the web UI shows up to four images from [githubflyideas/ads-sponsor](https://github.com/githubflyideas/ads-sponsor). The program itself fetches them from GitHub about once an hour and caches them in a `sponsor` folder inside its data directory; if that cache is empty, the browser may fetch them from GitHub directly. If neither works, the built-in sponsor text is shown.
