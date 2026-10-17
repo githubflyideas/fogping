@@ -3,9 +3,9 @@
 > 
 > *🚫 No Perl. No RRDtool. No Web Server. No Config Files.*
 > 
-![window: a 40-minute congestion event — smoke spreads, bursts marked ◆](docs/hero15.png)
-![window: a 40-minute congestion event — smoke spreads, bursts marked ◆](docs/hero17.png)
-![window: a 40-minute congestion event — smoke spreads, bursts marked ◆](docs/hero16.png)
+![fogping: PING target latency graph (dark theme)](docs/images/fogping-ping.png)
+![fogping: TCP target latency graph (amber theme)](docs/images/fogping-tcp.png)
+![fogping: target editor (daylight theme)](docs/images/fogping-targets.png)
 
 ## Quick start
 
