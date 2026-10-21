@@ -11,9 +11,9 @@
 
 ```bash
 mkdir -p ~/fogping && cd ~/fogping
-wget https://github.com/githubflyideas/fogping/releases/download/v1.2.2/fogping-v1.2.2-linux-amd64.tar.gz
+wget https://github.com/githubflyideas/fogping/releases/download/v1.1.3/fogping-v1.1.3-linux-amd64.tar.gz
 
-tar -xzf fogping-v1.2.2-linux-amd64.tar.gz
+tar -xzf fogping-v1.1.3-linux-amd64.tar.gz
 ./fogping --edit user=admin passwd=admin1234
 ```
 Open `http://localhost:8518`, log in(user=admin passwd=admin1234 )
@@ -88,10 +88,10 @@ extra capabilities on Docker 20.10+; `--user` keeps the mounted directory writab
 
 ```bash
 sudo mkdir -p /opt/fogping && sudo chown "$USER": /opt/fogping && cd /opt/fogping
-wget https://github.com/githubflyideas/fogping/releases/download/v1.2.2/fogping-v1.2.2-linux-amd64.tar.gz
-wget https://github.com/githubflyideas/fogping/releases/download/v1.2.2/SHA256SUMS
-sha256sum --ignore-missing -c SHA256SUMS     # expect: fogping-v1.2.2-linux-amd64.tar.gz: OK
-tar -xzf fogping-v1.2.2-linux-amd64.tar.gz
+wget https://github.com/githubflyideas/fogping/releases/download/v1.1.3/fogping-v1.1.3-linux-amd64.tar.gz
+wget https://github.com/githubflyideas/fogping/releases/download/v1.1.3/SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS     # expect: fogping-v1.1.3-linux-amd64.tar.gz: OK
+tar -xzf fogping-v1.1.3-linux-amd64.tar.gz
 ./fogping --version
 ```
 
@@ -774,7 +774,3 @@ oscilloscope without cgo.
 ## License
 
 apache 2.0
-
-## Sponsor slot
-
-The sponsor box in the web UI shows up to four images from [githubflyideas/ads-sponsor](https://github.com/githubflyideas/ads-sponsor). The program itself fetches them from GitHub about once an hour and caches them in a `sponsor` folder inside its data directory; if that cache is empty, the browser may fetch them from GitHub directly. If neither works, the built-in sponsor text is shown.

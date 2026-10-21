@@ -83,8 +83,6 @@ func main() {
 	stop := make(chan struct{})
 	go store.flushLoop(stop)
 	go housekeeping(cfg, store, stop)
-	sponsor = newSponsorCache("fogping", cfg.DataDir)
-	go sponsor.run(stop)
 
 	mode := "read-only targets (restart with --edit to change them in the web UI)"
 	if cfg.Editable {
