@@ -1,0 +1,308 @@
+# FogPing — 17 languages
+
+[← README](../README.md)
+
+🌐 [English](#english) · [中文](#中文) · [Español](#español) · [Français](#français) · [Português](#português) · [Deutsch](#deutsch) · [Русский](#русский) · [日本語](#日本語) · [한국어](#한국어) · [Bahasa Indonesia](#bahasa-indonesia) · [Tiếng Việt](#tiếng-việt) · [العربية](#العربية) · [हिन्दी](#हिन्दी) · [বাংলা](#বাংলা) · [اردو](#اردو) · [Türkçe](#türkçe) · [ไทย](#ไทย)
+
+
+## English
+
+FogPing is a lightweight network latency and link quality visualization tool.
+
+It may not be as powerful or feature-rich as Smokeping, but it's ridiculously lightweight.
+
+Single binary
+No Docker
+No make. Just scp and run.
+Embedded SQLite — one file, no server, no setup
+Targets are managed in the web UI — editable only when started with --edit.
+
+Download it, extract it, run ./fogping, then go grab a coffee.
+
+When you're back, open http://localhost:8518 and watch your first puff of network smoke.
+
+## 中文
+
+FogPing 是一款轻量级的网络链路质量绘图工具。它或许没有 Smokeping 那么强大、成熟，但它足够轻巧。
+单一可执行文件（Single Binary），下载即可使用，无需 Docker、无需 Root 权限、无需外部数据库（内置 SQLite，单文件落盘）。监控目标存放在内置 SQLite 中，只能在 Web 界面里增删改，且仅在以 --edit 启动时可写。
+下载、解压、运行 ./fogping，然后去泡杯咖啡吧。回来打开 http://localhost:8518 看看你的第一缕网络烟雾！
+
+-------------------------------------------------------------------------------------------------
+FogPing 是一款輕量級的網路鏈路品質繪圖工具。
+它或許沒有 Smokeping 那麼強大、成熟，但它足夠輕巧。
+
+單一執行檔（Single Binary），下載即可使用
+無需 Docker
+無需 Root 權限
+內建 SQLite，單一檔案落盤
+監控目標存放在內建 SQLite 中，只能在 Web 介面中新增、修改、刪除，且僅在以 --edit 啟動時可寫。
+下載、解壓、執行 ./fogping，然後去泡杯咖啡吧。回來打開 http://localhost:8518 看看你的第一縷網路煙霧！
+
+
+## Español
+
+FogPing es una herramienta ligera para visualizar la calidad de enlaces de red.
+
+Puede que no sea tan potente ni tan completa como Smokeping, pero es extremadamente ligera.
+
+Un único ejecutable
+Sin Docker
+Sin make. Solo copia con scp y ejecútalo.
+SQLite embebido: un solo archivo, sin servidor
+Los objetivos se gestionan desde la interfaz web, que solo permite cambios si se arranca con --edit.
+
+Descárgalo, descomprímelo y ejecuta ./fogping. Luego ve a prepararte un café.
+
+Cuando vuelvas, abre http://localhost:8518 y disfruta de tu primera nube de humo de red.
+
+## Français
+
+FogPing est un outil léger de visualisation de la qualité des liaisons réseau.
+
+Il n'est peut-être pas aussi puissant ni aussi complet que Smokeping, mais il est incroyablement léger.
+
+Un seul exécutable
+Aucun Docker
+Pas de make. Un simple scp, puis exécutez-le.
+SQLite embarqué : un seul fichier, aucun serveur
+Les cibles se gèrent depuis l'interface web, modifiable uniquement si fogping est lancé avec --edit.
+
+Téléchargez-le, décompressez-le et lancez ./fogping.
+
+Allez ensuite vous préparer un café.
+
+À votre retour, ouvrez http://localhost:8518 et admirez votre premier nuage de fumée réseau.
+
+## Português
+
+FogPing é uma ferramenta leve para visualizar a qualidade das ligações de rede.
+
+Talvez não seja tão poderoso quanto o Smokeping, mas é extremamente leve.
+
+Binário único
+Sem Docker
+Sem make. Basta copiar com scp e executar.
+SQLite embutido: um único ficheiro, sem servidor
+Os alvos são geridos na interface web, que só permite alterações quando iniciada com --edit.
+
+Baixe, extraia e execute ./fogping.
+
+Depois vá tomar um café.
+
+Quando voltar, abra http://localhost:8518 e veja a sua primeira fumaça da rede.
+
+## Deutsch
+
+FogPing ist ein leichtgewichtiges Werkzeug zur Visualisierung der Netzwerkqualität.
+
+Es ist vielleicht nicht so leistungsfähig wie Smokeping, dafür aber extrem schlank.
+
+Eine einzige ausführbare Datei
+Kein Docker
+Kein make. Einfach per scp kopieren und starten.
+Eingebettetes SQLite — eine Datei, kein Server
+Ziele werden in der Weboberfläche verwaltet – änderbar nur, wenn fogping mit --edit gestartet wurde.
+
+Herunterladen, entpacken und ./fogping starten.
+
+Dann gönn dir einen Kaffee.
+
+Wenn du zurückkommst, öffne http://localhost:8518 und sieh dir deine erste Netzwerk-Rauchwolke an.
+
+## Русский
+
+FogPing — лёгкий инструмент для визуализации качества сетевых соединений.
+
+Возможно, он не такой мощный, как Smokeping, но зато невероятно лёгкий.
+
+Один исполняемый файл
+Без Docker
+Без make. Просто скопируйте через scp и запустите.
+Встроенный SQLite — один файл, без сервера
+Цели управляются в веб-интерфейсе; изменять их можно только при запуске с --edit.
+
+Скачайте, распакуйте и запустите ./fogping.
+
+А затем сходите выпить кофе.
+
+Вернувшись, откройте http://localhost:8518 и посмотрите на своё первое «сетевое облако дыма».
+
+
+## 日本語
+
+FogPing は、軽量なネットワーク品質可視化ツールです。
+
+Smokeping ほど高機能ではありませんが、その代わり驚くほど軽量です。
+
+単一バイナリ
+Docker 不要
+make 不要。scp して実行するだけ。
+SQLite 内蔵。ファイル 1 つ、サーバも設定も不要
+監視対象は Web UI で管理します。追加・編集・削除できるのは --edit で起動したときだけです。
+
+ダウンロードして展開し、./fogping を実行したら、コーヒーでも淹れましょう。
+
+戻って http://localhost:8518 を開けば、最初のネットワークスモークグラフが待っています。
+
+## 한국어
+
+FogPing은 가벼운 네트워크 품질 시각화 도구입니다.
+
+Smokeping만큼 강력하지는 않지만, 놀라울 정도로 가볍습니다.
+
+단일 실행 파일
+Docker 불필요
+make 불필요. scp로 복사한 뒤 바로 실행.
+내장 SQLite — 파일 하나, 서버 불필요
+모니터링 대상은 웹 UI에서 관리하며, --edit으로 실행했을 때만 추가·수정·삭제할 수 있습니다.
+
+다운로드하고 압축을 푼 뒤 ./fogping을 실행하세요.
+
+그리고 커피 한 잔 마시고 돌아오세요.
+
+돌아와 http://localhost:8518 를 열면 첫 번째 네트워크 스모크 그래프를 볼 수 있습니다.
+
+
+## Bahasa Indonesia
+
+FogPing adalah alat ringan untuk memvisualisasikan kualitas koneksi jaringan.
+
+Mungkin tidak sekuat Smokeping, tetapi sangat ringan.
+
+Satu berkas biner
+Tanpa Docker
+Tanpa make. Cukup salin dengan scp lalu jalankan.
+SQLite tertanam — satu berkas, tanpa server
+Target dikelola lewat antarmuka web, dan hanya bisa diubah bila dijalankan dengan --edit.
+
+Unduh, ekstrak, lalu jalankan ./fogping.
+
+Kemudian nikmati secangkir kopi.
+
+Saat kembali, buka http://localhost:8518 dan lihat asap pertama jaringan Anda.
+
+## Tiếng Việt
+
+FogPing là công cụ nhẹ để trực quan hóa chất lượng kết nối mạng.
+
+Có thể nó không mạnh bằng Smokeping, nhưng cực kỳ gọn nhẹ.
+
+Một tệp thực thi duy nhất
+Không cần Docker
+Không cần make. Chỉ cần scp rồi chạy.
+SQLite nhúng — một tệp duy nhất, không cần máy chủ
+Mục tiêu được quản lý trên giao diện web và chỉ có thể thay đổi khi khởi động với --edit.
+
+Tải về, giải nén và chạy ./fogping.
+
+Sau đó hãy đi pha một tách cà phê.
+
+Khi quay lại, mở http://localhost:8518 để xem làn khói mạng đầu tiên của bạn.
+
+## العربية
+
+FogPing أداة خفيفة لعرض جودة اتصالات الشبكة.
+
+قد لا تكون بنفس قوة Smokeping، لكنها خفيفة للغاية.
+
+ملف تنفيذي واحد
+لا حاجة إلى Docker
+لا حاجة إلى make، فقط انسخه باستخدام scp ثم شغّله.
+قاعدة بيانات SQLite مدمجة — ملف واحد بلا خادم
+تُدار أهداف المراقبة من واجهة الويب، ولا يمكن تعديلها إلا عند التشغيل مع ‎--edit.
+
+نزّل البرنامج، فك الضغط، ثم شغّل ./fogping.
+
+بعدها اذهب لتحضير فنجان من القهوة.
+
+وعند عودتك، افتح http://localhost:8518 وشاهد أول مخطط دخان للشبكة.
+
+## हिन्दी
+
+FogPing एक हल्का नेटवर्क लिंक गुणवत्ता विज़ुअलाइज़ेशन टूल है।
+
+यह Smokeping जितना शक्तिशाली नहीं हो सकता, लेकिन बेहद हल्का है।
+
+एकल बाइनरी
+Docker की आवश्यकता नहीं
+make की आवश्यकता नहीं। बस scp करें और चलाएँ।
+अंतर्निहित SQLite — एक फ़ाइल, कोई सर्वर नहीं
+लक्ष्य वेब UI में प्रबंधित होते हैं, और केवल --edit के साथ चलाने पर ही बदले जा सकते हैं।
+
+डाउनलोड करें, अनज़िप करें और ./fogping चलाएँ।
+
+फिर एक कप कॉफ़ी बना लीजिए।
+
+वापस आकर http://localhost:8518 खोलें और अपना पहला नेटवर्क स्मोक ग्राफ़ देखें।
+
+## বাংলা
+
+FogPing একটি হালকা নেটওয়ার্ক সংযোগের মান প্রদর্শনের টুল।
+
+এটি Smokeping-এর মতো শক্তিশালী নাও হতে পারে, তবে অত্যন্ত হালকা।
+
+একটি মাত্র বাইনারি
+Docker প্রয়োজন নেই
+make প্রয়োজন নেই। শুধু scp করে চালান।
+অন্তর্নির্মিত SQLite — একটিমাত্র ফাইল, কোনো সার্ভার নয়
+মনিটরিং লক্ষ্যগুলো ওয়েব UI থেকে পরিচালনা করা হয়, এবং কেবল --edit দিয়ে চালালেই পরিবর্তন করা যায়।
+
+ডাউনলোড করুন, আনজিপ করুন এবং ./fogping চালান।
+
+তারপর এক কাপ কফি বানিয়ে আসুন।
+
+ফিরে এসে http://localhost:8518 খুলুন এবং আপনার প্রথম নেটওয়ার্ক স্মোক গ্রাফ দেখুন।
+
+## اردو
+
+FogPing نیٹ ورک لنک کے معیار کو دکھانے والا ایک ہلکا پھلکا ٹول ہے۔
+
+یہ شاید Smokeping جتنا طاقتور نہ ہو، لیکن انتہائی ہلکا ہے۔
+
+ایک واحد بائنری
+Docker کی ضرورت نہیں
+make کی ضرورت نہیں۔ صرف scp کریں اور چلائیں۔
+بلٹ اِن SQLite — ایک فائل، کوئی سرور نہیں
+مانیٹرنگ اہداف ویب UI سے منظم کیے جاتے ہیں، اور صرف ‎--edit کے ساتھ چلانے پر ہی تبدیل کیے جا سکتے ہیں۔
+
+ڈاؤن لوڈ کریں، ان زپ کریں اور ./fogping چلائیں۔
+
+پھر ایک کپ کافی بنا لیں۔
+
+واپس آ کر http://localhost:8518 کھولیں اور اپنا پہلا نیٹ ورک اسموک گراف دیکھیں۔
+
+## Türkçe
+
+FogPing, ağ bağlantısı kalitesini görselleştiren hafif bir araçtır.
+
+Smokeping kadar güçlü olmayabilir, ancak son derece hafiftir.
+
+Tek çalıştırılabilir dosya
+Docker gerekmez
+make gerekmez. scp ile kopyalayın ve çalıştırın.
+Gömülü SQLite — tek dosya, sunucu yok
+Hedefler web arayüzünden yönetilir ve yalnızca --edit ile başlatıldığında değiştirilebilir.
+
+İndirin, arşivi açın ve ./fogping çalıştırın.
+
+Sonra gidip bir kahve hazırlayın.
+
+Geri döndüğünüzde http://localhost:8518 adresini açın ve ilk ağ duman grafiğinizi görün.
+
+## ไทย
+
+FogPing เป็นเครื่องมือขนาดเล็กสำหรับแสดงภาพคุณภาพของลิงก์เครือข่าย
+
+อาจจะไม่ได้ทรงพลังหรือมีฟีเจอร์ครบถ้วนเทียบเท่า Smokeping แต่มีจุดเด่นคือความเบาและใช้งานง่ายอย่างมาก
+
+ไฟล์ไบนารีเดียว (Single Binary)
+ไม่ต้องใช้ Docker
+ไม่ต้องใช้ make เพียง scp ไฟล์แล้วใช้งานได้ทันที
+ใช้ SQLite ในตัว — ไฟล์เดียว ไม่ต้องติดตั้งเซิร์ฟเวอร์
+จัดการเป้าหมายการตรวจสอบผ่านหน้าเว็บ และแก้ไขได้เฉพาะเมื่อเริ่มด้วย --edit เท่านั้น
+
+ดาวน์โหลด แตกไฟล์ แล้วรัน ./fogping
+
+จากนั้นไปชงกาแฟสักแก้ว
+
+เมื่อกลับมา เปิด http://localhost:8518 แล้วดูควันเครือข่ายเส้นแรกของคุณได้เลย
