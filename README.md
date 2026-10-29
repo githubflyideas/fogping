@@ -39,12 +39,14 @@ press Ctrl-C and restart **without** `--edit` — the UI becomes read-only and s
 | Require a login | `./fogping user=admin passwd=change-me` |
 | Several users | `./fogping user=alice,bob passwd=alice-pw,bob-pw` |
 | Edit targets | `./fogping --edit user=admin passwd=change-me` |
-| Keep 90 days of history (default 40) | `./fogping --days=90 user=admin passwd=change-me` |
+| Keep 30 days of history (default and max 93) | `./fogping --days=30 user=admin passwd=change-me` |
 | Listen on 127.0.0.1 only (behind a proxy) | `./fogping --localhost` |
 | Run in the background | `nohup ./fogping user=admin passwd=change-me >> fogping.log 2>&1 &` |
 | Show all commands | `./fogping --help` |
 
 Arguments can come in any order; the port is always 8518.
+
+**Compare:** the **COMPARE** menu under the chart overlays the previous period, yesterday or last week as a dashed median line.
 
 **Export / import targets:** ✎ targets → ⇩ export / ⇧ import… moves a target list as a JSON file, shared with pingping — see [the guide](docs/GUIDE.md#export-and-import) and the [format spec](docs/targets-format.md). Ready-made lists: see presets/ (coming).
 

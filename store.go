@@ -18,7 +18,7 @@ import (
 // Storage is SQLite with two tiers. Raw rounds keep every sample for HotDays; the
 // hourly rollup keeps the shape (min/p50/p90/p99/max, loss, bursts) for the whole
 // retention window. Windows up to a day read raw rounds (real smoke); anything
-// longer reads hourly buckets — 300 days is 7200 rows, which the chart handles fine.
+// longer reads hourly buckets — 93 days is 2232 rows, which the chart handles fine.
 //
 // There used to be a daily tier as well. It was kept exactly as long as the hourly
 // one, so it saved no disk, and deriving it from an unaligned window truncated its

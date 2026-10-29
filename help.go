@@ -31,8 +31,8 @@ EXAMPLES
   without --edit, so the UI is read-only:
     ./fogping --edit user=admin passwd=change-me
 
-  Keep 90 days of history instead of 40:
-    ./fogping --days=90 user=admin passwd=change-me
+  Keep 30 days of history instead of 93 (93 is also the maximum):
+    ./fogping --days=30 user=admin passwd=change-me
 
   Run in the background with a log file, and stop it again:
     nohup ./fogping user=admin passwd=change-me >> fogping.log 2>&1 &
@@ -65,7 +65,7 @@ FLAGS
   --edit          allow changing targets in the web UI
                   (refuses to start without user=/passwd= or --localhost)
   --localhost     listen on 127.0.0.1:8518 instead of all interfaces (0.0.0.0:8518)
-  --days=N        days of history to keep (default 40)
+  --days=N        days of history to keep (default 93, max 93)
   --version       print the version and exit
   user=  passwd=  turn on the login page (comma-separated lists)
 

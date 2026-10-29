@@ -21,6 +21,9 @@
     --bg:#14161a; --panel:#1c2027; --screen:#0d0f13; --line:#2b323c;
     --phos:#22d3ee; --amber:#fbbf24; --alert:#fb3b53; --ink:#c0c6ce; --dim:#78848f;
     --grid-axis:#333b47; --grid-split:#1c222a;
+    /* Compare (dashed) line. Dark themes reuse --dim (>=4.5:1 on --screen); the
+       light themes' --dim is only ~3.5:1, so each gets a darker grey of its own. */
+    --cmp:#78848f;
     --smoke:rgba(251,191,36,.20); --lossbar:rgba(251,59,83,.7); --glow:5;
     --smoke-hot:#b86e14; --smoke-mid:#8c3f0d; --smoke-cool:#452740;
     --shadow:0 1px 2px rgba(0,0,0,.45); --shadow-lg:0 12px 32px rgba(0,0,0,.45);
@@ -38,7 +41,7 @@
   html[data-theme="daylight"] {
     --bg:#f2efe6; --panel:#fbf9f3; --screen:#fffdf7; --line:#ddd6c4;
     --phos:#1d4ed8; --amber:#b45309; --alert:#be123c; --ink:#3e4346; --dim:#8a8677;
-    --grid-axis:#cdc6b2; --grid-split:#e9e3d3;
+    --grid-axis:#cdc6b2; --grid-split:#e9e3d3; --cmp:#6b6656;
     --smoke:rgba(180,83,9,.22); --lossbar:rgba(190,18,60,.6); --glow:0;
     --smoke-hot:#e07a3a; --smoke-mid:#e8a878; --smoke-cool:#cfc8b8;
     --shadow:0 1px 3px rgba(80,70,40,.12); --shadow-lg:0 12px 30px rgba(80,70,40,.16);
@@ -48,7 +51,7 @@
   html[data-theme="arctic"] {
     --bg:#eaeff4; --panel:#f7fafc; --screen:#fdfeff; --line:#d3dce5;
     --phos:#0f172a; --amber:#0369a1; --alert:#dc2626; --ink:#3a4353; --dim:#7d8b99;
-    --grid-axis:#c2cdd8; --grid-split:#e2e9f0;
+    --grid-axis:#c2cdd8; --grid-split:#e2e9f0; --cmp:#5b6878;
     --smoke:rgba(56,132,199,.22); --lossbar:rgba(220,38,38,.55); --glow:0;
     --smoke-hot:#4a9fd4; --smoke-mid:#8dc0e0; --smoke-cool:#cfe0ec;
     --shadow:0 1px 3px rgba(30,50,70,.10); --shadow-lg:0 12px 30px rgba(30,50,70,.14);
@@ -58,7 +61,7 @@
   html[data-theme="budapest"] {
     --bg:#f7ebe8; --panel:#fdf5f2; --screen:#fffaf8; --line:#e6cfc8;
     --phos:#5b2a4f; --amber:#c9754f; --alert:#c1362f; --ink:#4c3d41; --dim:#9c8087;
-    --grid-axis:#dcc0b8; --grid-split:#f0e0da;
+    --grid-axis:#dcc0b8; --grid-split:#f0e0da; --cmp:#7d5f66;
     --smoke:rgba(216,133,140,.26); --lossbar:rgba(193,54,47,.55); --glow:0;
     --smoke-hot:#e0748c; --smoke-mid:#eaa8ae; --smoke-cool:#f0dbd2;
     --shadow:0 1px 3px rgba(120,80,80,.12); --shadow-lg:0 12px 30px rgba(120,80,80,.16);
@@ -70,7 +73,7 @@
   html[data-theme="amber"] {
     --bg:#12100a; --panel:#1c1810; --screen:#0a0806; --line:#38301c;
     --phos:#ffd75e; --amber:#ffd98a; --alert:#ff5f2e; --ink:#cebd95; --dim:#8f7b4e;
-    --grid-axis:#443a20; --grid-split:#1e1a10;
+    --grid-axis:#443a20; --grid-split:#1e1a10; --cmp:#8f7b4e;
     --smoke:rgba(255,176,0,.20); --lossbar:rgba(255,95,46,.65); --glow:7;
     --smoke-hot:#a86a10; --smoke-mid:#7d4508; --smoke-cool:#2f4429;
     --shadow:0 1px 2px rgba(0,0,0,.6); --shadow-lg:0 12px 32px rgba(0,0,0,.55);
@@ -112,6 +115,12 @@
   .rng button:hover { color:var(--ink); }
   .rng button.on { background:color-mix(in srgb, var(--amber) 15%, transparent);
                    color:var(--amber); font-weight:700; }
+  /* Compare: one dropdown next to TIME/DIV, same panel style */
+  .rng select { font-family:var(--sans); font-size:var(--fs-small); background:none; border:0;
+                color:var(--ink); padding:7px 10px 7px 4px; cursor:pointer; }
+  .rng select:focus { outline:none; color:var(--phos); }
+  .rng select option { background:var(--panel); color:var(--ink); }
+  .rng select option:disabled { color:var(--dim); }
   .scope { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:14px; }
   .crt { position:relative; }
   #chart { height:420px; background:var(--screen); border-radius:4px; }
@@ -263,8 +272,17 @@
       <button data-m="20160">14d</button>
       <button data-m="43200">30d</button>
       <button data-m="86400">60d</button>
-      <button data-m="172800">120d</button>
-      <button data-m="432000">300d</button>
+      <button data-m="129600">90d</button>
+      <button data-m="133920">93d</button>
+    </div>
+    <div class="rng cmp" title="Overlay the median of an earlier period as a dashed line. Periods older than the retention window are unavailable.">
+      <span>COMPARE</span>
+      <select id="cmpMode" aria-label="compare">
+        <option value="off">Off</option>
+        <option value="prev">Previous period</option>
+        <option value="day">Yesterday, same time</option>
+        <option value="week">Last week, same time</option>
+      </select>
     </div>
     <div class="rng custom">
       <input type="datetime-local" id="customFrom" step="60">
@@ -338,6 +356,132 @@ async function loadTargets() {
 }
 
 let sel = null; // {from,to} 自定义查询区间(unix 秒)
+
+// ---- Compare overlay ("same period" dashed line) ----
+// Fetch the same target for an earlier window (the current window moved back by
+// shift seconds), then add shift back to the timestamps so it lies over the
+// current window. /api/series already takes from/to, so the server needs nothing.
+// The mode lives in memory only, like the time window.
+let cmpMode = 'off';
+let cmpData = null;      // the compare line currently drawn, for the tooltip
+let cmpInflight = null;  // own AbortController; a new render aborts it too
+let retentionSec = 0;    // /api/version retention_days; 0 = unknown yet, no limit
+// Raw samples are kept hot_days; older than that only hourly rows exist. Taken
+// from /api/version; falls back to the default 2 days (older server / not back yet).
+let rawKeepSec = 2 * 86400;
+const CMP_TIMEOUT = 15000; // give up on the compare fetch after 15 s ("unavailable")
+const CMP_NAMES = { prev: 'Previous period', day: 'Yesterday, same time', week: 'Last week, same time' };
+const cmpShift = (mode, w) => mode === 'prev' ? w : mode === 'day' ? 86400 : mode === 'week' ? 604800 : 0;
+// Current window [from,to] in unix seconds. Preset windows use the local clock.
+function curWindow() {
+  if (sel) return { from: sel.from, to: sel.to };
+  const to = Math.floor(Date.now() / 1000);
+  return { from: to - minutes * 60, to };
+}
+// The whole comparison period must be inside retention: from - shift >= now - retention.
+function cmpValid(mode, win) {
+  if (mode === 'off') return true;
+  if (!retentionSec) return true;
+  const now = Math.floor(Date.now() / 1000);
+  return (now - win.from) + cmpShift(mode, win.to - win.from) <= retentionSec;
+}
+// Grey out modes that can't be served; fall back to Off if the current one became
+// invalid. Returns whether it fell back.
+function syncCmpOptions(win) {
+  const box = $('cmpMode');
+  [...box.options].forEach(o => {
+    if (o.value === 'off') return;
+    o.disabled = !cmpValid(o.value, win);
+    o.title = o.disabled ? 'Beyond retention' : '';
+  });
+  const fell = !cmpValid(cmpMode, win);
+  if (fell) cmpMode = 'off';
+  box.value = cmpMode;
+  return fell;
+}
+
+// Row -> median, shared by the main chart and the compare line. Raw rounds carry
+// samples (median of the sorted samples); hourly buckets carry five percentiles
+// [min,p50,p90,p99,max] and the median is q[1] — sorting those five and taking the
+// middle would give P90, not a median.
+function roundMedian(r) {
+  const srt = (r.ms && r.ms.length) ? [...r.ms].sort((a,b)=>a-b) : [];
+  return { srt, med: srt.length ? srt[Math.floor(srt.length/2)] : 0 };
+}
+const bucketMedian = b => b.q ? b.q[1] : undefined;
+// [[ts_ms, median], ...] for a whole /api/series response, shifted by shiftSec.
+function medianLine(d, shiftSec = 0) {
+  const off = shiftSec * 1000, out = [];
+  if (d.tier === 'hourly') {
+    (d.buckets || []).forEach(b => { const m = bucketMedian(b); if (m !== undefined) out.push([b.t * 1000 + off, m]); });
+  } else {
+    (d.rounds || []).forEach(r => { const { srt, med } = roundMedian(r); if (srt.length) out.push([r.t * 1000 + off, med]); });
+  }
+  return out;
+}
+
+// Fetch the comparison period. Superseded by a newer render -> null (silent). Any
+// other failure (HTTP error, network, bad JSON, timeout) -> { failed: true } and the
+// legend says "comparison data unavailable"; the main chart is never affected.
+// Success with no rows (new install, not enough history) -> { empty: true }.
+async function fetchCompare(name, win, mode) {
+  const shift = cmpShift(mode, win.to - win.from);
+  const from = win.from - shift, to = win.to - shift;
+  let reqFrom = from;
+  // The server picks the tier by span: <=24h reads raw rounds. If the shifted window
+  // is older than the raw tier keeps, raw is empty — so widen the request to ~25h to
+  // get hourly buckets back, then trim them to [from,to].
+  const now = Math.floor(Date.now() / 1000);
+  const widen = (to - from) <= 86400 && from < now - rawKeepSec - 3600;
+  if (widen) reqFrom = to - 86400 - 3600;
+  if (cmpInflight) cmpInflight.abort();
+  const ctl = new AbortController();
+  cmpInflight = ctl;
+  // The timeout uses the same controller; timedOut tells it apart from "superseded".
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; ctl.abort(); }, CMP_TIMEOUT);
+  try {
+    const res = await fetch(`/api/series?target=${encodeURIComponent(name)}&from=${reqFrom}&to=${to}`, { signal: ctl.signal });
+    if (!res.ok) return { mode, failed: true };
+    const d = await res.json() || {};
+    if (widen && d.tier === 'hourly') d.buckets = (d.buckets || []).filter(b => b.t > from - 3600 && b.t <= to);
+    const pts = medianLine(d, shift);
+    if (!pts.length) return { mode, empty: true };
+    // The hour bucket straddling the window start is stamped at its start, so after
+    // the shift it would land left of the window and widen the x axis: clamp it.
+    if (pts[0][0] < win.from * 1000) pts[0][0] = win.from * 1000;
+    const hourly = d.tier === 'hourly';
+    // Raw points are one probe interval apart; the tooltip uses that as "nearby".
+    let gap = 3600e3;
+    if (!hourly && pts.length > 1) {
+      const ds = pts.slice(1).map((p, i) => p[0] - pts[i][0]).sort((a,b)=>a-b);
+      gap = ds[Math.floor(ds.length/2)] || 60e3;
+    }
+    return { mode, hourly, pts, gap };
+  } catch {
+    return (ctl.signal.aborted && !timedOut) ? null : { mode, failed: true };
+  } finally {
+    clearTimeout(timer);
+    if (cmpInflight === ctl) cmpInflight = null;
+  }
+}
+// Compare value at hover time ts. Hourly rows: the bucket containing ts; raw: nearest round.
+function cmpValueAt(cmp, ts) {
+  if (!cmp || !cmp.pts.length) return undefined;
+  const a = cmp.pts;
+  let lo = 0, hi = a.length - 1;
+  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (a[mid][0] <= ts) lo = mid; else hi = mid - 1; }
+  if (cmp.hourly) return (a[lo][0] <= ts && ts - a[lo][0] < 3600e3) ? a[lo][1] : undefined;
+  let best = a[lo];
+  if (lo + 1 < a.length && Math.abs(a[lo+1][0] - ts) < Math.abs(best[0] - ts)) best = a[lo+1];
+  return Math.abs(best[0] - ts) <= cmp.gap * 0.6 ? best[1] : undefined;
+}
+// Round up to 1/2/2.5/5 x 10^n so the top Y tick is a round number.
+function niceCeil(v) {
+  const p = Math.pow(10, Math.floor(Math.log10(v)));
+  for (const k of [1, 2, 2.5, 5, 10]) if (v <= k * p) return k * p;
+  return 10 * p;
+}
 let renderSeq = 0;
 let inflight = null; // 正在飞的 series 请求 —— 新请求发起前先掐掉它,
                      // 否则快速点击会在服务端堆起一串没人要的慢查询,互相拖死。
@@ -354,14 +498,24 @@ async function render() {
 
 async function renderInner(seq) {
   await loadTargets();
+  // Superseded by a newer render: leave now. Otherwise the abort() below would kill
+  // the newest render's request and the chart would stay on the old window.
+  if (seq !== renderSeq) return;
   const t = targets.find(x => x.name === current);
   if (!t) return;
   let url = `/api/series?target=${encodeURIComponent(current)}`;
   if (sel) url += `&from=${sel.from}&to=${sel.to}`;
   else url += `&minutes=${minutes}`;
   if (inflight) inflight.abort();
+  if (cmpInflight) { cmpInflight.abort(); cmpInflight = null; }
   const ctl = new AbortController();
   inflight = ctl;
+  // The comparison period is fetched in parallel; the main chart draws first and
+  // the dashed line is added when it arrives.
+  const win = curWindow();
+  syncCmpOptions(win);
+  const mode = cmpMode;
+  const cmpP = mode !== 'off' ? fetchCompare(current, win, mode) : Promise.resolve(null);
   let d;
   try {
     d = await (await fetch(url, { signal: ctl.signal })).json() || {};
@@ -385,8 +539,7 @@ async function renderInner(seq) {
     const pool = [];
     (d.rounds || []).forEach(r => {
       const ts = r.t * 1000;
-      const srt = (r.ms && r.ms.length) ? [...r.ms].sort((a,b)=>a-b) : [];
-      const rmed = srt.length ? srt[Math.floor(srt.length/2)] : 0;
+      const { srt, med: rmed } = roundMedian(r);
       if (srt.length) median.push([ts, rmed]);
       srt.forEach(v => {
         smoke.push([ts, v, rmed ? Math.abs(v - rmed) / rmed : 0]); // 维度2 = 偏离该轮中位数的比例
@@ -414,7 +567,7 @@ async function renderInner(seq) {
     (d.buckets || []).forEach(b => {
       const ts = b.t * 1000;
       if (b.q) {
-        const m = b.q[1];
+        const m = bucketMedian(b);
         median.push([ts, m]);
         b.q.forEach(v => smoke.push([ts, v, m ? Math.abs(v - m) / m : 0]));
         qs.forEach((arr, i) => arr.push([b.q[i+1], b.n]));
@@ -438,9 +591,11 @@ async function renderInner(seq) {
     lossPct = nW ? lossW / nW : 0;
   }
 
-  $('legend').textContent = hourly
+  const cmpName = mode !== 'off' ? CMP_NAMES[mode] + ' · P50' : '';
+  const legendBase = hourly
     ? 'Line = hourly median · Smoke = hourly min/p50/p90/p99/max · Red bars = loss% · ◆ = bursts'
     : 'Line = per-round median · Smoke = all samples · Red bars = loss% · ◆ = burst';
+  $('legend').textContent = legendBase + (cmpName ? ` · ┄ = ${cmpName}` : '');
   const approx = hourly ? '≈' : '';
   const fmt = v => v === undefined ? '–' : approx + v.toFixed(1);
   ['p50','p90','p99'].forEach((id, i) => {
@@ -452,10 +607,15 @@ async function renderInner(seq) {
   $('bursts').textContent = bursts;
   $('bursts').className = 'v' + (bursts ? ' bad' : '');
 
-  const win = sel ? 'custom' : (document.querySelector('.rng button[data-m].on')?.textContent || minutes + 'm');
-  $('conclusion').textContent = (t.down ? '🔴 ' : '🟢 ') + `${t.name}: ${win} P99 ${fmt(p99)} ms · loss ${lossPct.toFixed(2)}% · ${bursts} bursts`;
+  const winLabel = sel ? 'custom' : (document.querySelector('.rng button[data-m].on')?.textContent || minutes + 'm');
+  $('conclusion').textContent = (t.down ? '🔴 ' : '🟢 ') + `${t.name}: ${winLabel} P99 ${fmt(p99)} ms · loss ${lossPct.toFixed(2)}% · ${bursts} bursts`;
 
-  const phos = cssv('--phos');
+  // The main chart's own top (smoke + median); see the Y-axis guard further down.
+  let mainTop = 0;
+  smoke.forEach(p => { if (p[1] > mainTop) mainTop = p[1]; });
+  median.forEach(p => { if (p[1] > mainTop) mainTop = p[1]; });
+
+  const phos = cssv('--phos'), cmpColor = cssv('--cmp') || cssv('--dim');
   chart.setOption({
     animation: false,
     grid: { left: 52, right: 46, top: 18, bottom: 42 },
@@ -485,23 +645,37 @@ async function renderInner(seq) {
       backgroundColor: cssv('--panel'), borderColor: cssv('--line'),
       textStyle: { color: cssv('--ink'), fontSize: 11, fontFamily: 'monospace' },
       formatter: params => {
-        const ts = params[0] && params[0].axisValue;
+        // Take the time from the main median point: the (shifted) compare points are
+        // in params too and must not decide which round roundInfo looks up.
+        const mp = params.find(p => p.seriesId === 'median');
+        const ts = mp ? mp.value[0] : (params[0] && params[0].axisValue);
         const i = roundInfo[ts];
         if (!i) return '';
         let html = `<b>${new Date(+ts).toLocaleString()}</b>`;
+        const cv = cmpValueAt(cmpData, +ts);
+        const cur = i.hourly ? (i.q ? i.q[1] : undefined) : (i.n ? i.med : undefined);
+        let cmpLine = '';
+        if (cv !== undefined) {
+          cmpLine = `<br><span style="color:${cmpColor}">┄ ${CMP_NAMES[cmpData.mode]} <b>${cv.toFixed(1)} ms</b>`;
+          if (cur !== undefined && cv > 0) {
+            const dp = (cur - cv) / cv * 100;
+            cmpLine += ` · Δ <b style="color:${dp > 0 ? cssv('--alert') : cssv('--phos')}">${dp >= 0 ? '+' : ''}${dp.toFixed(1)}%</b>`;
+          }
+          cmpLine += '</span>';
+        }
         if (i.hourly) {
           const f = v => v.toFixed(1);
           html += i.q ? `<br>hour min/p50/p90/p99/max = ${i.q.map(f).join('/')} ms` : '<br>no replies this hour';
           html += `<br>${i.n} rounds`;
           html += `<br><span style="color:${i.lp > 0 ? cssv('--alert') : cssv('--dim')}">loss <b>${i.lp.toFixed(2)}%</b></span>`;
           if (i.bursts) html += ` <span style="color:${cssv('--alert')}">· ◆ ${i.bursts} burst${i.bursts > 1 ? 's' : ''}</span>`;
-          return html;
+          return html + cmpLine;
         }
         html += `<br>rtt min/avg/max/mdev = ${i.lo.toFixed(3)}/${i.avg.toFixed(3)}/${i.hi.toFixed(3)}/${i.mdev.toFixed(3)} ms`;
         html += `<br>median <b>${i.med.toFixed(1)} ms</b> · ${i.n} samples`;
         html += `<br><span style="color:${i.lp > 0 ? cssv('--alert') : cssv('--dim')}">loss <b>${i.lp.toFixed(0)}%</b> (${i.lost}/${i.s})</span>`;
         if (i.b) html += ` <span style="color:${cssv('--alert')}">· ◆ burst z=${i.z ? i.z.toFixed(2) : '—'}</span>`;
-        return html;
+        return html + cmpLine;
       } },
     // 荧光束渐变:贴线的样本 = 炽亮核心,散开的样本渐冷渐暗
     visualMap: { show: false, type: 'continuous', dimension: 2, min: 0, max: 0.5,
@@ -512,16 +686,49 @@ async function renderInner(seq) {
       { type: 'scatter', data: smoke, symbolSize: 2.2, silent: true, large: true },
       { type: 'line', data: median, showSymbol: false, silent: true, z: 4,
         lineStyle: { color: phos, width: 7, opacity: 0.10 } },
-      { type: 'line', data: median, showSymbol: false,
+      { id: 'median', type: 'line', data: median, showSymbol: false,
         lineStyle: { color: phos, width: 1.6, shadowColor: phos, shadowBlur: +cssv('--glow') * 2 }, z: 5 },
       { type: 'bar', yAxisIndex: 1, data: lossBars, barMaxWidth: 3,
         itemStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1,
           [{ offset: 0, color: cssv('--alert') }, { offset: 1, color: cssv('--lossbar') }]) } },
       { type: 'scatter', yAxisIndex: 1, data: burstPts, symbol: 'diamond',
         symbolSize: 9, itemStyle: { color: cssv('--alert') }, z: 6,
-        tooltip: { formatter: p => `◆ ${p.value[2]}` } }
+        tooltip: { formatter: p => `◆ ${p.value[2]}` } },
+      // Compare dashed line: P50 only, no smoke. Data is merged in later by id.
+      { id: 'cmp', name: cmpName, type: 'line', data: [], showSymbol: false, z: 3,
+        lineStyle: { color: cmpColor, width: 1.3, type: 'dashed' },
+        itemStyle: { color: cmpColor } }
     ]
   }, true);
+  cmpData = null;
+
+  const cmp = await cmpP;
+  if (seq !== renderSeq || !cmp || cmp.mode !== cmpMode) return; // stale / superseded / switched: main chart stays
+  if (cmp.failed) { // failed or timed out: the legend must not keep promising "┄ = …"
+    $('legend').textContent = `${legendBase} · comparison data unavailable`;
+    return;
+  }
+  if (cmp.empty) {
+    $('legend').textContent += ' (no data in comparison period)';
+    return;
+  }
+  cmpData = cmp;
+  // A comparison period more than 3x higher than the main chart would flatten the
+  // main line on a shared axis. Size the axis to the main chart (top x 1.2, rounded),
+  // let the dashed line clip at the top edge, and print the compare peak.
+  const cmpTop = cmp.pts.reduce((m, p) => p[1] > m ? p[1] : m, 0);
+  const clip = mainTop > 0 && cmpTop > mainTop * 3;
+  // Main chart on raw rounds but the comparison only has hourly rows: draw steps
+  // (a bucket is stamped at its start and holds until the next one).
+  const opt = { series: [{ id: 'cmp', data: cmp.pts, step: (cmp.hourly && !hourly) ? 'end' : false }] };
+  if (clip) {
+    const peak = `↑ ${cmpTop.toFixed(1)} ms`;
+    opt.yAxis = [{ max: niceCeil(mainTop * 1.2) }];
+    opt.graphic = [{ type: 'text', id: 'cmpClip', right: 48, top: 2, silent: true,
+      style: { text: `┄ ${peak}`, fill: cmpColor, font: '10px monospace' } }];
+    $('legend').textContent += ` (${peak})`;
+  }
+  chart.setOption(opt);
 }
 
 
@@ -534,6 +741,7 @@ document.querySelectorAll('.rng button[data-m]').forEach(b => b.onclick = () => 
   render();
 });
 $('selReset').onclick = () => { sel = null; $('selReset').style.display = 'none'; render(); };
+$('cmpMode').onchange = () => { cmpMode = $('cmpMode').value; render(); };
 $('customGo').onclick = () => {
   const fv = $('customFrom').value, tv = $('customTo').value;
   if (!fv || !tv) return;
@@ -562,6 +770,9 @@ fetch('/api/version').then(r => r.json()).then(d => {
   const el = $('ver');
   if (el && d.version) el.textContent = 'v' + String(d.version).replace(/^v/, '');
   const keep = (d.retention_days || 0) * 1440;
+  retentionSec = keep * 60;
+  if (d.hot_days > 0) rawKeepSec = d.hot_days * 86400;
+  if (syncCmpOptions(curWindow())) render(); // current compare mode beyond retention -> fell back to Off, redraw
   if (keep > 0) {
     document.querySelectorAll('.rng button[data-m]').forEach(b => {
       if (+b.dataset.m > keep) b.style.display = 'none';
@@ -572,7 +783,7 @@ fetch('/api/version').then(r => r.json()).then(d => {
 render();
 setInterval(() => { if (!rendering) render(); }, 60000); // 慢查询进行中时跳过本次自动刷新
 // Beyond 24h the chart draws hourly buckets: the smoke is the five percentiles per
-// hour rather than every sample — raw samples are only kept for two days.
+// hour rather than every sample — raw samples are only kept for hot_days (2 by default).
 
 // ---- target editor (server started with --edit) ----
 let editingId = 0;

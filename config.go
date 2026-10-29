@@ -25,9 +25,28 @@ func defaultConfig() *Config {
 		Listen:        "0.0.0.0:8518",
 		DataDir:       "./data",
 		Probe:         ProbeCfg{IntervalSec: 60, Packets: 20, GapMs: 50, TimeoutMs: 1000},
-		HotDays:       2,  // raw samples: enough for the sub-day windows
-		RetentionDays: 40, // hourly rollups; --days overrides
+		HotDays:       2,           // raw samples: enough for the sub-day windows
+		RetentionDays: defaultDays, // hourly rollups; --days overrides
 	}
+}
+
+// Hourly history is kept defaultDays by default and never longer than maxDays.
+const (
+	defaultDays = 93
+	maxDays     = 93
+)
+
+// retentionDays turns the --days value into the retention to use. 0 or negative
+// keeps the default (as it always has); above maxDays is refused at startup rather
+// than silently clamped, so nobody believes they are keeping a year of history.
+func retentionDays(n int) (int, error) {
+	if n > maxDays {
+		return 0, fmt.Errorf("--days max is %d (got %d)", maxDays, n)
+	}
+	if n <= 0 {
+		return defaultDays, nil
+	}
+	return n, nil
 }
 
 type TargetCfg struct {

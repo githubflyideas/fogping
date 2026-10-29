@@ -19,7 +19,7 @@ var demoTarget = TargetCfg{Name: "Demo", Type: "icmp", Host: "www.google.com", P
 
 func main() {
 	localOnly := flag.Bool("localhost", false, "bind 127.0.0.1 only; put Caddy/Nginx in front for auth/TLS")
-	days := flag.Int("days", 40, "days of history to keep; UI hides windows beyond this")
+	days := flag.Int("days", defaultDays, fmt.Sprintf("days of history to keep (max %d); UI hides windows beyond this", maxDays))
 	edit := flag.Bool("edit", false, "allow adding/editing/deleting targets from the web UI (default: read-only)")
 	showVer := flag.Bool("version", false, "print version")
 	args := os.Args[1:]
@@ -42,14 +42,16 @@ func main() {
 		fmt.Fprintf(os.Stderr, "fogping: %v\nRun './fogping --help' for examples.\n", err)
 		os.Exit(2)
 	}
+	var err error
 	if *showVer {
 		fmt.Println("fogping", version)
 		return
 	}
 
 	cfg := defaultConfig()
-	if *days > 0 {
-		cfg.RetentionDays = *days
+	if cfg.RetentionDays, err = retentionDays(*days); err != nil {
+		fmt.Fprintf(os.Stderr, "fogping: %v\nRun './fogping --help' for examples.\n", err)
+		os.Exit(2)
 	}
 	users, err := parseAuthArgs(append(authArgs, flag.Args()...))
 	if err != nil {

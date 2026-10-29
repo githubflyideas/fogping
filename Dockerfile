@@ -61,6 +61,6 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=10s \
 # 参数原样传给 fogping，例如：
 #   docker run ... githubflyideas/fogping --edit user=admin passwd=change-me
 # 不方便改命令行的场景（Docker Desktop / NAS / RouterOS）用环境变量：
-#   FOGPING_EDIT=1  FOGPING_USER=admin  FOGPING_PASSWD=change-me  FOGPING_DAYS=90
+#   FOGPING_EDIT=1  FOGPING_USER=admin  FOGPING_PASSWD=change-me  FOGPING_DAYS=30
 ENTRYPOINT ["docker-entrypoint"]
 CMD []

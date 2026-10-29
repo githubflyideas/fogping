@@ -124,6 +124,7 @@ func newMux(cfg *Config, store *Store, run *Runner, users map[string]string) htt
 
 	mux.HandleFunc("/api/version", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"version": version, "retention_days": cfg.RetentionDays,
+			"hot_days": cfg.HotDays, // raw-sample days: the compare overlay asks for hourly rows beyond this
 			"editable": cfg.Editable})
 	})
 
@@ -264,7 +265,7 @@ func newMux(cfg *Config, store *Store, run *Runner, users map[string]string) htt
 		to, _ := strconv.ParseInt(q.Get("to"), 10, 64)
 		if from == 0 || to == 0 {
 			minutes, _ := strconv.Atoi(q.Get("minutes"))
-			if minutes <= 0 || minutes > 432000 { // up to 300 days
+			if minutes <= 0 || minutes > maxDays*1440 { // up to 93 days
 				minutes = 360
 			}
 			to = time.Now().Unix()

@@ -32,7 +32,7 @@ docker run -d --name fogping --restart unless-stopped   -p 8518:8518   -v fogpin
 docker rm -f fogping
 docker run -d --name fogping --restart unless-stopped   -p 8518:8518   -v fogping_data:/data   githubflyideas/fogping:latest            user=admin passwd=change-me
 ```
-Everything after the image name is passed to fogping as-is (`--edit`, `--days=90`,
+Everything after the image name is passed to fogping as-is (`--edit`, `--days=30`,
 `user=` / `passwd=`). Where you can set environment variables but not a command
 (Docker Desktop, NAS container managers, RouterOS), use these instead:
 
@@ -40,7 +40,7 @@ Everything after the image name is passed to fogping as-is (`--edit`, `--days=90
 |---|---|
 | `FOGPING_EDIT=1` | `--edit` |
 | `FOGPING_USER=admin` / `FOGPING_PASSWD=change-me` | `user=admin passwd=change-me` (comma-separated for several) |
-| `FOGPING_DAYS=90` | `--days=90` |
+| `FOGPING_DAYS=30` | `--days=30` (default and maximum 93) |
 
 `--edit` without a login is refused, as on bare metal. PING targets work without
 extra capabilities on Docker 20.10+; `--user` keeps the mounted directory writable by you.
@@ -115,7 +115,7 @@ starts probing. The log looks like this:
 ```
 new database — seeded a demo target (www.google.com)
 [Demo] probing www.google.com
-fogping 1.1.2 up · 1 targets · targets editable in the web UI · listening on 0.0.0.0:8518 · data in ./data · 40-day retention
+fogping 1.1.2 up · 1 targets · targets editable in the web UI · listening on 0.0.0.0:8518 · data in ./data · 93-day retention
 ➜  open http://localhost:8518 for the smoke graph
 web login enabled for 1 user(s)
 ```
@@ -160,11 +160,12 @@ then press Ctrl-C and start again without `--edit` so the UI is read-only:
 `--edit` refuses to start without a login (or `--localhost`): an open, writable UI
 would let anyone make this host ping or connect to arbitrary addresses.
 
-Keep 90 days of history instead of the default 40 (raw samples are always kept for
-2 days; the UI hides range buttons longer than the history):
+History is kept for 93 days by default, which is also the maximum. Keep less with
+`--days` (raw samples are always kept for 2 days; the UI hides range buttons longer
+than the history). A value above 93 is refused at startup with `--days max is 93`:
 
 ```bash
-./fogping --days=90 user=admin passwd=change-me
+./fogping --days=30 user=admin passwd=change-me
 ```
 
 Run in the background with a log file, and stop it again (for a proper service,
@@ -367,14 +368,20 @@ targets, raw rounds and hourly buckets.
 | Tier | What | Kept | Used for views |
 |---|---|---|---|
 | Raw | every sample of every round | 2 days | up to 1 day |
-| Hourly | per hour: min / p50 / p90 / p99 / max, loss, bursts | `--days` (40) | 3 days and longer |
+| Hourly | per hour: min / p50 / p90 / p99 / max, loss, bursts | `--days` (93, max 93) | 3 days and longer |
 
 Hourly buckets are computed in-process: on start for everything raw still holds,
 then every 5 minutes. Old data is removed every night at 00:05 local time, and the
 file is compacted when there is free space to hand back. There is nothing to cron.
 
 Size, roughly: ~0.35 MB per `normal` target and ~2 MB per `fast` target for the
-two days of raw samples, plus a few KB per target per day of hourly history.
+two days of raw samples, plus ~1.8 KB per target per day of hourly history
+(~170 KB per target for the full 93 days). The raw tier dominates: 200 `normal`
+targets come to about 105 MB, 200 `fast` targets to about 430 MB.
+
+Upgrading from a version that kept more than 93 days: hourly rows older than the
+new retention are deleted by the next nightly clean-up (00:05). Back up `data/`
+first if you want to keep them.
 
 Backup — while running, with the `sqlite3` tool:
 
@@ -398,6 +405,13 @@ To start over from scratch: stop fogping and delete `data/`.
 - **P50 / P90 / P99** under the chart are computed from all samples in the window.
   On views of 3 days and longer they are marked `≈`: exact window percentiles
   cannot be rebuilt from hourly ones, so these are the typical hour's values.
+- **Compare** — the COMPARE menu overlays an earlier period's median as a dashed
+  line: *Previous period* (the window just before this one), *Yesterday, same
+  time* or *Last week, same time*. Hover shows the compare value and the Δ%.
+  A choice is greyed out ("Beyond retention") when that period is older than the
+  93-day history, so 60d and longer windows cannot compare with the previous period.
+  When the period has no data yet the legend says so; a compare line far above
+  the main chart is clipped at the top with its peak shown (`↑ N ms`).
 - For an exact range, fill in the two date fields and press **Go**;
   **✕ selection** returns to the preset windows.
 
@@ -456,8 +470,8 @@ tarball is linked statically.
 
 
 fogping is a minimalist smokeping-like network oscilloscope with SQLite storage:
-raw rounds are held hot for 2 days, then rolled up hourly and kept for 40 days
-(`--days` to change). Burst detection (z-score) writes its verdict alongside each
+raw rounds are held hot for 2 days, then rolled up hourly and kept for 93 days
+(`--days` to shorten; 93 is the maximum). Burst detection (z-score) writes its verdict alongside each
 round, so the ◆ marks on the chart come straight from the store. Built-in Web UI
 with native auth — read-only unless started with `--edit` — no Nginx, no Caddy, no
 external database. Targets are rows in the same SQLite file; there is no config file.
