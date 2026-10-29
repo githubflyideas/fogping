@@ -165,6 +165,26 @@
             background:var(--screen); border:1px solid var(--line); border-radius:4px; padding:6px 8px; }
   .tgt input:focus, .tgt select:focus { outline:none; border-color:var(--phos); }
   #tgtErr { color:var(--alert); font-size:var(--fs-small); }
+  /* Export / import of the target list (netping-targets file). */
+  .ie { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:12px; }
+  .ie a.pill { text-decoration:none; }
+  .ie .hint { color:var(--dim); font-size:var(--fs-small); }
+  #ieMsg { font-size:var(--fs-small); color:var(--phos); }
+  #ieMsg.bad { color:var(--alert); }
+  .tgt.drop { outline:2px dashed var(--phos); outline-offset:4px; }
+  .ie-prev { margin-top:12px; padding:12px; border:1px solid var(--line); border-radius:6px; }
+  .ie-prev .ttl { font-weight:600; margin-bottom:6px; }
+  .ie-prev .note { color:var(--amber); font-size:var(--fs-small); margin-bottom:8px; }
+  .ie-prev .sum { font-size:var(--fs-small); color:var(--dim); margin-bottom:6px; }
+  .ie-prev .sum b { color:var(--ink); }
+  .ie-prev .rows { max-height:280px; overflow:auto; margin-bottom:10px; }
+  .ie-prev td.st { font-family:var(--mono); font-size:var(--fs-small); white-space:nowrap; }
+  .ie-prev tr.add td.st { color:var(--phos); }
+  .ie-prev tr.skip td.st { color:var(--dim); }
+  .ie-prev tr.invalid td.st, .ie-prev tr.invalid td.why { color:var(--alert); }
+  .ie-prev td.why { color:var(--dim); font-size:var(--fs-small); }
+  .ie-prev .btns { display:flex; gap:8px; }
+  .ie-prev button:disabled { opacity:.5; cursor:default; }
 </style>
 </head>
 <body>
@@ -173,6 +193,7 @@
   <div class="tag">One binary. One graph. One metric: Latency.</div>
   <div style="margin-left:auto; display:flex; gap:8px">
     <button class="pill" id="editBtn" title="add, edit or remove targets" style="display:none">✎ targets</button>
+    <a class="pill" id="exportPill" href="/api/targets/export" download style="display:none;text-decoration:none" title="Download the active targets as a JSON file">⇩ targets</a>
     <button class="pill" id="themeBtn" title="switch theme">◐ <span id="themeName">dark</span></button>
   </div>
 </header>
@@ -202,6 +223,23 @@
     <button class="pill" id="fCancel" type="button" style="display:none">cancel</button>
     <span id="tgtErr"></span>
   </form>
+  <div class="ie">
+    <a class="pill" id="ieExport" href="/api/targets/export" download title="Download the active targets as a JSON file">⇩ export</a>
+    <button class="pill" id="ieImport" type="button" title="Add targets from a JSON file — you see a preview first">⇧ import…</button>
+    <input type="file" id="ieFile" accept=".json,application/json" hidden>
+    <span class="hint">or drop a .json file on this panel</span>
+    <span id="ieMsg" role="status"></span>
+  </div>
+  <div class="ie-prev" id="iePreview" style="display:none">
+    <div class="ttl" id="ieTitle"></div>
+    <div class="note">⚠ Importing makes this host probe every address listed below. Only import files you trust.</div>
+    <div class="sum" id="ieSum"></div>
+    <div class="rows"><table><tbody id="ieRows"></tbody></table></div>
+    <div class="btns">
+      <button class="pill" id="ieGo" type="button">Import</button>
+      <button class="pill" id="ieCancel" type="button">cancel</button>
+    </div>
+  </div>
 </div>
 
 <div class="scope">
@@ -518,6 +556,9 @@ document.querySelectorAll('#tfilter button').forEach(b => b.onclick = () => {
 // 版本号显示在赞助栏标题;保留期决定哪些时间窗有意义
 fetch('/api/version').then(r => r.json()).then(d => {
   if (d.editable) $('editBtn').style.display = '';
+  // Read-only instance: the list is readable, so it can be exported; import
+  // lives in the editor, which only --edit opens.
+  else $('exportPill').style.display = '';
   const el = $('ver');
   if (el && d.version) el.textContent = 'v' + String(d.version).replace(/^v/, '');
   const keep = (d.retention_days || 0) * 1440;
@@ -600,6 +641,93 @@ $('editBtn').onclick = () => {
   $('editBtn').classList.toggle('on', open);
   drawTargetTable();
 };
+
+// ---- export / import (netping-targets file, see docs/targets-format.md) ----
+// The server parses and validates; the page only shows its verdict. The preview
+// is a dry run of the same request, and the confirmation sends the same bytes
+// again, so what is applied is re-checked against the list as it is by then.
+(() => {
+  const tr = (k, en) => (window.T ? T(k, en) : en);
+  const n = (k, en, v) => tr(k, en).replace('%d', v);
+  let pending = null;
+  const msg = (text, bad) => { $('ieMsg').textContent = text; $('ieMsg').className = bad ? 'bad' : ''; };
+  const hide = () => { $('iePreview').style.display = 'none'; pending = null; };
+  const addr = r => r.type === 'tcp' ? (r.host.includes(':') ? `[${r.host}]:${r.port}` : `${r.host}:${r.port}`) : r.host;
+  async function post(body, dry) {
+    const res = await fetch('/api/targets/import' + (dry ? '?dry_run=1' : ''),
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+    return d;
+  }
+  function show(p, file) {
+    $('ieTitle').textContent = p.name ? `${p.name} (${file})` : file;
+    const sum = $('ieSum'); sum.replaceChildren();
+    [[n('console.ieAdd', '%d to add', p.add.length)], [n('console.ieSkip', '%d skipped', p.skip.length)],
+     [n('console.ieInvalid', '%d invalid', p.invalid.length)]].forEach(([t], i) => {
+      if (i) sum.append(' · ');
+      const b = document.createElement('b'); b.textContent = t; sum.append(b);
+    });
+    const rows = [
+      ...p.add.map(r => ({ row: r.row, cls: 'add', st: tr('console.ieStAdd', '+ add'), name: r.name,
+        what: `${r.type === 'tcp' ? 'TCP' : 'PING'} ${addr(r)} · ${r.pace || 'normal'}${r.interval ? ' · ' + r.interval + 's' : ''}`,
+        why: r.restores_history ? tr('console.ieRestore', 'restores the history of a deleted target with this name') : '' })),
+      ...p.skip.map(r => ({ row: r.row, cls: 'skip', st: tr('console.ieStSkip', 'skip'), name: r.name, what: '',
+        why: r.code === 'exists' ? tr('console.ieExists', 'a target with this name already exists')
+           : r.code === 'duplicate' ? tr('console.ieDupe', 'same name earlier in this file') : r.reason })),
+      ...p.invalid.map(r => ({ row: r.row, cls: 'invalid', st: tr('console.ieStInvalid', '✕ invalid'),
+        name: r.name || '', what: '', why: r.error })),
+    ].sort((x, y) => x.row - y.row);
+    const body = $('ieRows'); body.replaceChildren();
+    rows.forEach(r => {
+      const tr_ = document.createElement('tr'); tr_.className = r.cls;
+      [['#' + r.row, 'mono'], [r.st, 'st'], [r.name, ''], [r.what, 'mono'], [r.why, 'why']].forEach(([t, c]) => {
+        const td = document.createElement('td'); td.textContent = t; if (c) td.className = c; tr_.append(td);
+      });
+      body.append(tr_);
+    });
+    $('ieGo').textContent = p.add.length ? n('console.ieConfirm', 'Import %d targets', p.add.length)
+                                         : tr('console.ieNothing', 'Nothing to import');
+    $('ieGo').disabled = !p.add.length;
+    $('iePreview').style.display = '';
+  }
+  async function load(file) {
+    hide(); msg('');
+    if (!file) return;
+    if (file.size > 1048576) { msg(tr('console.ieTooBig', 'The file is larger than 1 MB.'), true); return; }
+    try {
+      const body = await file.text();
+      const p = await post(body, true);
+      pending = body;
+      show(p, file.name);
+    } catch (err) { msg(tr('console.ieFailed', 'Import failed:') + ' ' + err.message, true); }
+  }
+  $('ieImport').onclick = () => { $('ieFile').value = ''; $('ieFile').click(); };
+  $('ieFile').onchange = () => load($('ieFile').files[0]);
+  $('ieCancel').onclick = () => { hide(); msg(''); };
+  $('ieGo').onclick = async () => {
+    if (!pending) return;
+    $('ieGo').disabled = true;
+    try {
+      const p = await post(pending, false);
+      hide();
+      msg(n('console.ieDone', 'Imported %d targets.', p.imported));
+      render();
+    } catch (err) {
+      $('ieGo').disabled = false;
+      msg(tr('console.ieFailed', 'Import failed:') + ' ' + err.message, true);
+    }
+  };
+  const panel = $('tgtPanel');
+  const files = e => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+  panel.addEventListener('dragover', e => { if (files(e)) { e.preventDefault(); panel.classList.add('drop'); } });
+  panel.addEventListener('dragleave', () => panel.classList.remove('drop'));
+  panel.addEventListener('drop', e => {
+    if (!files(e)) return;
+    e.preventDefault(); panel.classList.remove('drop');
+    load(e.dataTransfer.files[0]);
+  });
+})();
 
 $('themeBtn').onclick = () => {
   theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];

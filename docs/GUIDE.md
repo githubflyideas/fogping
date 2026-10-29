@@ -239,6 +239,49 @@ without `--edit` to make the UI read-only again.
 Packets in a round are sent 50 ms apart; replies later than 1 s count as lost.
 A custom interval changes how often a round runs, not how many packets it sends.
 
+### Export and import
+
+The target editor (`--edit`) has **⇩ export** and **⇧ import…** buttons. On a
+read-only instance an **⇩ targets** button in the header still exports.
+
+- **Export** downloads the active targets as `fogping-targets-YYYYMMDD.json`
+  (`GET /api/targets/export`): name, type, host, port, pace and interval only — no
+  ids, history, logins or settings. It needs the same access as viewing the
+  targets: a login when `user=` is set, otherwise none.
+- **Import** reads such a file (pick it, or drop it on the panel) and first shows
+  a preview: rows to add, rows skipped because the name already exists (or repeats
+  in the file), and invalid rows with the reason. **Import N targets** applies the
+  valid rows in one transaction — all of them or none. It only ever adds: existing
+  targets are not changed or removed. A row named like a *deleted* target brings
+  that target back with its history, exactly as re-adding it by hand does, and the
+  preview says so. Import needs `--edit` (and a login when users are configured)
+  and is refused from another site.
+- The file format is shared with [pingping](https://github.com/githubflyideas/pingping),
+  so lists move between the two in both directions.
+
+```json
+{
+  "format": "netping-targets",
+  "version": 1,
+  "name": "Japan top 3",
+  "targets": [
+    {"name": "Google JP", "type": "tcp", "host": "www.google.co.jp", "port": 443, "pace": "normal"},
+    {"name": "Gateway", "type": "ping", "host": "10.0.0.1", "pace": "fast", "interval": 10}
+  ]
+}
+```
+
+`type` is `ping` or `tcp` (`icmp` is accepted), `port` is for tcp only, `pace` is
+`fast` / `normal` / `slow` (default `normal`), `interval` (seconds, 1-86400) is
+optional. Files are limited to 1 MB and 500 targets. Full spec:
+[targets-format.md](targets-format.md) · JSON Schema:
+[targets.schema.json](targets.schema.json).
+
+> Importing makes this host probe every address in the file. Read the preview,
+> and only import lists you trust.
+
+Ready-made lists: see presets/ (coming).
+
 ## Run as a systemd service
 
 Create a dedicated user and hand it the install directory:

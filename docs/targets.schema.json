@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/githubflyideas/pingping/blob/main/docs/targets.schema.json",
+  "title": "netping-targets",
+  "description": "Target list shared by pingping and fogping (version 1). See docs/targets-format.md. Unknown properties are ignored by readers.",
+  "type": "object",
+  "required": ["format", "version", "targets"],
+  "properties": {
+    "format": { "const": "netping-targets" },
+    "version": { "type": "integer", "const": 1 },
+    "name": { "type": "string" },
+    "description": { "type": "string" },
+    "targets": {
+      "type": "array",
+      "maxItems": 500,
+      "items": { "$ref": "#/$defs/target" }
+    }
+  },
+  "$defs": {
+    "target": {
+      "type": "object",
+      "required": ["type", "host"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Optional; empty means host (ping) or host:port (tcp). Unique within an installation."
+        },
+        "type": {
+          "type": "string",
+          "pattern": "^\\s*([Pp][Ii][Nn][Gg]|[Ii][Cc][Mm][Pp]|[Tt][Cc][Pp])\\s*$",
+          "description": "ping | tcp (icmp accepted as a synonym for ping; case-insensitive)"
+        },
+        "host": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 253,
+          "pattern": "^\\s*\\S+\\s*$"
+        },
+        "port": { "type": "integer", "minimum": 0, "maximum": 65535, "description": "Required (1-65535) for tcp; ignored for ping." },
+        "pace": { "enum": ["fast", "normal", "slow", ""], "default": "normal" },
+        "interval": { "type": "integer", "minimum": 0, "maximum": 86400, "description": "Seconds; 0 or absent = use pace." }
+      },
+      "if": {
+        "properties": { "type": { "pattern": "^\\s*[Tt][Cc][Pp]\\s*$" } }
+      },
+      "then": {
+        "required": ["port"],
+        "properties": { "port": { "minimum": 1 } }
+      }
+    }
+  }
+}

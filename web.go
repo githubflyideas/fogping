@@ -227,6 +227,17 @@ func newMux(cfg *Config, store *Store, run *Runner, users map[string]string) htt
 			done(w, t, err, "created")
 		}
 	}))
+	// Export and import of the target list as a "netping-targets" file (see
+	// targetsio.go). Export is gated like GET /api/targets — the file says nothing
+	// that list does not — so it works on a read-only instance too. Import changes
+	// what this host probes, so it takes the same gate as every other write:
+	// --edit, a session when users are configured, and a same-origin request.
+	mux.HandleFunc("GET /api/targets/export", guard(func(w http.ResponseWriter, r *http.Request) {
+		serveTargetsExport(w, store, "fogping")
+	}))
+	mux.HandleFunc("POST /api/targets/import", write(func(w http.ResponseWriter, r *http.Request, _ int64) {
+		serveTargetsImport(w, r, store, run)
+	}))
 	mux.HandleFunc("PUT /api/targets/{id}", write(func(w http.ResponseWriter, r *http.Request, id int64) {
 		if t, ok := decode(w, r); ok {
 			t.ID = id

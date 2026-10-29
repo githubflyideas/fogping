@@ -46,6 +46,8 @@ press Ctrl-C and restart **without** `--edit` — the UI becomes read-only and s
 
 Arguments can come in any order; the port is always 8518.
 
+**Export / import targets:** ✎ targets → ⇩ export / ⇧ import… moves a target list as a JSON file, shared with pingping — see [the guide](docs/GUIDE.md#export-and-import) and the [format spec](docs/targets-format.md). Ready-made lists: see presets/ (coming).
+
 > **PING shows 100% loss?** Allow unprivileged ICMP once:
 > `echo 'net.ipv4.ping_group_range = 0 2147483647' | sudo tee /etc/sysctl.d/99-fogping.conf && sudo sysctl --system`
 > (TCP targets need nothing.) Other options are in the [guide](docs/GUIDE.md#allow-icmp-ping-without-root).

@@ -138,3 +138,46 @@ func (s *Store) DeactivateTarget(id int64) error {
 	}
 	return nil
 }
+
+// TargetNames maps every known name to whether it is active. Import previews use
+// it to tell "already there" from "deleted, will be restored".
+func (s *Store) TargetNames() (map[string]bool, error) {
+	rows, err := s.db.Query(`SELECT name, active FROM targets`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var name string
+		var active bool
+		if err := rows.Scan(&name, &active); err != nil {
+			return nil, err
+		}
+		out[name] = active
+	}
+	return out, rows.Err()
+}
+
+// ImportTargets adds a batch in one transaction, with exactly CreateTarget's rule
+// per row: a new name is inserted, a deleted name is reactivated (history comes
+// back), an active name is refused. Any refusal or error rolls the whole batch
+// back, so an import is never half-applied.
+func (s *Store) ImportTargets(ts []TargetCfg) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() // no-op after Commit
+	for _, t := range ts {
+		res, err := tx.Exec(upsertTarget+` WHERE targets.active=0`,
+			t.Name, t.Type, t.Host, t.Port, t.Pace, t.IntervalSec)
+		if err != nil {
+			return fmt.Errorf("%q: %w", t.Name, err)
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return fmt.Errorf("%q: %w", t.Name, errNameTaken)
+		}
+	}
+	return tx.Commit()
+}
