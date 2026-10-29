@@ -12,7 +12,7 @@
 One command (Linux x86-64) — downloads, unpacks and starts fogping:
 
 ```bash
-mkdir -p ~/fogping && cd ~/fogping && curl -L https://github.com/githubflyideas/fogping/releases/download/v1.1.3/fogping-v1.1.3-linux-amd64.tar.gz | tar -xz && ./fogping --edit user=admin passwd=change-me
+mkdir -p ~/fogping && cd ~/fogping && curl -L https://github.com/githubflyideas/fogping/releases/download/v1.3.0/fogping-v1.3.0-linux-amd64.tar.gz | tar -xz && ./fogping --edit user=admin passwd=change-me
 ```
 
 Or with Docker (amd64 / arm64 / armv7):

@@ -60,10 +60,10 @@ extra capabilities on Docker 20.10+; `--user` keeps the mounted directory writab
 
 ```bash
 sudo mkdir -p /opt/fogping && sudo chown "$USER": /opt/fogping && cd /opt/fogping
-wget https://github.com/githubflyideas/fogping/releases/download/v1.1.3/fogping-v1.1.3-linux-amd64.tar.gz
-wget https://github.com/githubflyideas/fogping/releases/download/v1.1.3/SHA256SUMS
-sha256sum --ignore-missing -c SHA256SUMS     # expect: fogping-v1.1.3-linux-amd64.tar.gz: OK
-tar -xzf fogping-v1.1.3-linux-amd64.tar.gz
+wget https://github.com/githubflyideas/fogping/releases/download/v1.3.0/fogping-v1.3.0-linux-amd64.tar.gz
+wget https://github.com/githubflyideas/fogping/releases/download/v1.3.0/SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS     # expect: fogping-v1.3.0-linux-amd64.tar.gz: OK
+tar -xzf fogping-v1.3.0-linux-amd64.tar.gz
 ./fogping --version
 ```
 

@@ -48,6 +48,6 @@ release:
     ```bash
     tar xzf fogping-*-linux-amd64.tar.gz && ./fogping
     ```
-    Storage is SQLite; history is kept for 40 days by default (`--days=300` for longer).
+    Storage is SQLite; history is kept for 93 days by default (`--days=N` for less; 93 is the max).
     linux/amd64 only in this release — SQLite needs CGO, so the other platforms are
     not cross-compiled here.
