@@ -63,7 +63,7 @@ sudo mkdir -p /opt/fogping && sudo chown "$USER": /opt/fogping && cd /opt/fogpin
 wget https://github.com/githubflyideas/fogping/releases/download/v1.3.0/fogping-v1.3.0-linux-amd64.tar.gz
 wget https://github.com/githubflyideas/fogping/releases/download/v1.3.0/SHA256SUMS
 sha256sum --ignore-missing -c SHA256SUMS     # expect: fogping-v1.3.0-linux-amd64.tar.gz: OK
-tar -xzf fogping-v1.3.0-linux-amd64.tar.gz
+tar --no-same-owner -xzf fogping-v1.3.0-linux-amd64.tar.gz
 ./fogping --version
 ```
 
@@ -115,7 +115,7 @@ starts probing. The log looks like this:
 ```
 new database — seeded a demo target (www.google.com)
 [Demo] probing www.google.com
-fogping 1.1.2 up · 1 targets · targets editable in the web UI · listening on 0.0.0.0:8518 · data in ./data · 93-day retention
+fogping X.Y.Z up · 1 targets · targets editable in the web UI · listening on 0.0.0.0:8518 · data in ./data · 93-day retention
 ➜  open http://localhost:8518 for the smoke graph
 web login enabled for 1 user(s)
 ```
@@ -281,8 +281,6 @@ optional. Files are limited to 1 MB and 500 targets. Full spec:
 > Importing makes this host probe every address in the file. Read the preview,
 > and only import lists you trust.
 
-Ready-made lists: see presets/ (coming).
-
 ## Run as a systemd service
 
 Create a dedicated user and hand it the install directory:
@@ -422,7 +420,7 @@ cd /opt/fogping
 sudo systemctl stop fogping
 sudo cp -a data data.bak                 # optional, lets you roll back
 sudo wget https://github.com/githubflyideas/fogping/releases/download/vX.Y.Z/fogping-vX.Y.Z-linux-amd64.tar.gz
-sudo tar -xzf fogping-vX.Y.Z-linux-amd64.tar.gz    # replaces the binary only
+sudo tar --no-same-owner -xzf fogping-vX.Y.Z-linux-amd64.tar.gz    # replaces the binary only
 sudo setcap cap_net_raw+ep fogping       # only if you used ICMP option B
 sudo systemctl start fogping
 ```
