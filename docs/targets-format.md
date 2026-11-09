@@ -114,7 +114,3 @@ before confirming, and only import lists from sources you trust.
 Import also takes the same cross-site protection as the other write endpoints: a
 request whose `Origin` is a different site is refused, and the JSON content type
 means a page on another site cannot submit it with your cookie.
-
-## Ready-made lists
-
-Ready-made lists: see `presets/` (coming).

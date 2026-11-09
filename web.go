@@ -76,13 +76,16 @@ func newMux(cfg *Config, store *Store, run *Runner, users map[string]string) htt
 		}
 	}
 	page := func(name string) http.HandlerFunc {
+		b, _ := staticFS.ReadFile("static/" + name)
+		csp := pageCSP(b)
 		return func(w http.ResponseWriter, r *http.Request) {
-			b, _ := staticFS.ReadFile("static/" + name)
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("Content-Security-Policy", csp)
 			w.Write(b)
 		}
 	}
 
+	index := page("index.html")
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)
@@ -92,7 +95,7 @@ func newMux(cfg *Config, store *Store, run *Runner, users map[string]string) htt
 			http.Redirect(w, r, "/login", http.StatusFound)
 			return
 		}
-		page("index.html")(w, r)
+		index(w, r)
 	})
 	mux.HandleFunc("/login", page("login.html"))
 	mux.Handle("/static/", http.FileServer(http.FS(staticFS)))
@@ -274,7 +277,7 @@ func newMux(cfg *Config, store *Store, run *Runner, users map[string]string) htt
 		writeJSON(w, store.ReadRange(r.Context(), name, from, to))
 	}))
 
-	return mux
+	return securityHeaders(mux)
 }
 
 // sameOrigin rejects browser requests whose Origin doesn't match the Host they were

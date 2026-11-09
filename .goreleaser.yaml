@@ -31,8 +31,16 @@ archives:
   - id: tar
     formats: [tar.gz]
     name_template: "{{ .ProjectName }}-v{{ .Version }}-{{ .Os }}-{{ .Arch }}"
+    # Owner root (uid/gid 0) instead of the CI runner's 1001, so `tar -x` run as
+    # root inside a container or user namespace does not fail on chown.
+    builds_info:
+      owner: root
+      group: root
     files:
-      - LICENSE
+      - src: LICENSE
+        info:
+          owner: root
+          group: root
 
 checksum:
   name_template: "SHA256SUMS"
@@ -46,7 +54,7 @@ release:
     ## Install
 
     ```bash
-    tar xzf fogping-*-linux-amd64.tar.gz && ./fogping
+    tar --no-same-owner -xzf fogping-*-linux-amd64.tar.gz && ./fogping
     ```
     Storage is SQLite; history is kept for 93 days by default (`--days=N` for less; 93 is the max).
     linux/amd64 only in this release — SQLite needs CGO, so the other platforms are
