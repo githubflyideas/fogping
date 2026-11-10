@@ -7,6 +7,8 @@
 ![fogping: TCP target latency graph (amber theme)](docs/images/fogping-tcp.png)
 ![fogping: target editor (daylight theme)](docs/images/fogping-targets.png)
 
+<img width="960" height="540" alt="image" src="https://github.com/user-attachments/assets/d4e56b5c-7a0a-4d4b-8b90-61bf855391bc" />
+
 ## Quick start
 
 One command (Linux x86-64) — downloads, unpacks and starts fogping:
