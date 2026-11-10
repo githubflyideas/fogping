@@ -8,6 +8,7 @@
 ![fogping: target editor (daylight theme)](docs/images/fogping-targets.png)
 
 <img width="960" height="540" alt="image" src="https://github.com/user-attachments/assets/d4e56b5c-7a0a-4d4b-8b90-61bf855391bc" />
+<img width="960" height="540" alt="image" src="https://github.com/user-attachments/assets/27239405-8446-48c1-a0b9-71c43b317429" />
 
 ## Quick start
 
