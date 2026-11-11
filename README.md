@@ -7,8 +7,6 @@
 <img width="1280" height="720" alt="image" src="https://github.com/user-attachments/assets/dbc7a184-c25b-4e34-9c58-9ac355d4bd63" />
 
 
-<img width="960" height="540" alt="image" src="https://github.com/user-attachments/assets/d4e56b5c-7a0a-4d4b-8b90-61bf855391bc" />
-
 
 ## Quick start
 
