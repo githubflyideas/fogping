@@ -77,6 +77,13 @@ jobs:
             curl -fsS http://127.0.0.1:8518/api/version && break
             sleep 1
           done
-          curl -fsS http://127.0.0.1:8518/api/version | grep -q '"editable":true'
+          # Anonymous callers get the version only once a login is configured;
+          # the instance settings (editable, retention) need a session.
+          if curl -fsS http://127.0.0.1:8518/api/version | grep -q '"editable"'; then
+            echo "::error::anonymous /api/version exposes instance settings"; exit 1
+          fi
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8518/api/targets)" = 401
+          curl -fsS -c /tmp/fp.cookies -X POST http://127.0.0.1:8518/api/login \
+            -d '{"User":"admin","Pass":"pw"}' > /dev/null
+          curl -fsS -b /tmp/fp.cookies http://127.0.0.1:8518/api/version | grep -q '"editable":true'
           docker logs fp
