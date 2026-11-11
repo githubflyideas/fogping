@@ -137,7 +137,11 @@ host's addresses:
 ```
 
 Require a login (recommended). Logins last 7 days; sessions live in memory, so a
-restart logs everyone out:
+restart logs everyone out, and signing out ends the session on the server too.
+After 5 wrong passwords from one address that address is locked out for 30 s,
+doubling with every further miss up to 15 min (even the right password is
+refused while the lock holds); a successful login clears the count. With a login
+configured, `/api/version` tells anonymous callers the version and nothing else:
 
 ```bash
 ./fogping user=admin passwd=change-me

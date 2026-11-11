@@ -54,7 +54,11 @@ async function login() {
   const res = await fetch('/api/login', { method:'POST',
     body: JSON.stringify({ User: $('user').value, Pass: $('pass').value }) });
   if (res.ok) location.href = '/';
-  else $('err').textContent = 'Wrong username or password';
+  else if (res.status === 429) {
+    const s = +res.headers.get('Retry-After') || 0;
+    $('err').textContent = 'Too many failed attempts — try again in ' +
+      (s >= 120 ? Math.ceil(s / 60) + ' min' : s + ' s');
+  } else $('err').textContent = 'Wrong username or password';
 }
 $('go').onclick = login;
 document.addEventListener('keydown', e => { if (e.key === 'Enter') login(); });

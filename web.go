@@ -19,6 +19,10 @@ import (
 //go:embed static
 var staticFS embed.FS
 
+// loginFailDelay is paid by every wrong password before the answer goes out.
+// Tests shorten it.
+var loginFailDelay = time.Second
+
 // sessions: in-memory, so a restart logs everyone out — acceptable and simple
 // for a single-binary tool. Auth exists only when users are passed on the CLI.
 type sessions struct {
@@ -47,12 +51,21 @@ func (s *sessions) valid(tok string) bool {
 	return true
 }
 
+// revoke ends a session server-side, so a copied cookie stops working at logout
+// rather than when it expires a week later.
+func (s *sessions) revoke(tok string) {
+	s.mu.Lock()
+	delete(s.m, tok)
+	s.mu.Unlock()
+}
+
 func serveWeb(cfg *Config, store *Store, run *Runner, users map[string]string) error {
 	return http.ListenAndServe(cfg.Listen, newMux(cfg, store, run, users))
 }
 
 func newMux(cfg *Config, store *Store, run *Runner, users map[string]string) http.Handler {
 	sess := &sessions{m: map[string]time.Time{}}
+	throttle := newLoginThrottle()
 	mux := http.NewServeMux()
 
 	authed := func(r *http.Request) bool {
@@ -100,32 +113,53 @@ func newMux(cfg *Config, store *Store, run *Runner, users map[string]string) htt
 	mux.HandleFunc("/login", page("login.html"))
 	mux.Handle("/static/", http.FileServer(http.FS(staticFS)))
 
-	// login: constant-time compare, 1s delay on failure to make brute force boring
+	// login: constant-time compare, 1s delay on failure, and a per-address lockout
+	// after repeated failures (see loginthrottle.go).
 	mux.HandleFunc("/api/login", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "POST only", http.StatusMethodNotAllowed)
 			return
 		}
+		key := loginClientKey(r)
+		if wait, ok := throttle.begin(key); !ok {
+			w.Header().Set("Retry-After", retryAfter(wait))
+			jsonErr(w, http.StatusTooManyRequests, "too many failed logins, try again later")
+			return
+		}
 		var body struct{ User, Pass string }
-		json.NewDecoder(r.Body).Decode(&body)
+		json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&body)
 		want, ok := users[body.User]
 		if len(users) == 0 || !ok ||
 			subtle.ConstantTimeCompare([]byte(body.Pass), []byte(want)) != 1 {
-			time.Sleep(time.Second)
-			log.Printf("web login failed from %s", r.RemoteAddr)
+			time.Sleep(loginFailDelay)
+			if lock := throttle.fail(key); lock > 0 {
+				log.Printf("web login failed from %s; address locked for %v", r.RemoteAddr, lock)
+			} else {
+				log.Printf("web login failed from %s", r.RemoteAddr)
+			}
 			http.Error(w, `{"error":"auth"}`, http.StatusUnauthorized)
 			return
 		}
+		throttle.success(key)
 		http.SetCookie(w, &http.Cookie{Name: "fogping_session", Value: sess.issue(),
 			Path: "/", HttpOnly: true, MaxAge: 7 * 24 * 3600, SameSite: http.SameSiteLaxMode})
 		writeJSON(w, map[string]bool{"ok": true})
 	})
 	mux.HandleFunc("/api/logout", func(w http.ResponseWriter, r *http.Request) {
+		if c, err := r.Cookie("fogping_session"); err == nil {
+			sess.revoke(c.Value) // otherwise the token stays valid until it expires
+		}
 		http.SetCookie(w, &http.Cookie{Name: "fogping_session", Value: "", Path: "/", MaxAge: -1})
 		writeJSON(w, map[string]bool{"ok": true})
 	})
 
+	// version is public (it is in every release download anyway); the instance's
+	// settings are not, once a login is configured.
 	mux.HandleFunc("/api/version", func(w http.ResponseWriter, r *http.Request) {
+		if !authed(r) {
+			writeJSON(w, map[string]any{"version": version})
+			return
+		}
 		writeJSON(w, map[string]any{"version": version, "retention_days": cfg.RetentionDays,
 			"hot_days": cfg.HotDays, // raw-sample days: the compare overlay asks for hourly rows beyond this
 			"editable": cfg.Editable})
