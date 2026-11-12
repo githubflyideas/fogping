@@ -18,8 +18,8 @@
 
   /* Signal — cyan trace over a cloud that burns from white-gold to cold ember. */
   :root {
-    --bg:#14161a; --panel:#1c2027; --screen:#0d0f13; --line:#2b323c;
-    --phos:#22d3ee; --amber:#fbbf24; --alert:#fb3b53; --ink:#c0c6ce; --dim:#78848f;
+    --bg:#14161a; --panel:#1c2027; --screen:#0d0f13; --line:#2b323c; --ctl:#676d76;
+    --phos:#22d3ee; --amber:#fbbf24; --alert:#fb3b53; --ink:#c0c6ce; --dim:#7e8a94;
     --grid-axis:#333b47; --grid-split:#1c222a;
     /* Compare (dashed) line. Dark themes reuse --dim (>=4.5:1 on --screen); the
        light themes' --dim is only ~3.5:1, so each gets a darker grey of its own. */
@@ -39,8 +39,8 @@
 
   /* Daylight — ink on lab paper. Core burns terracotta, edges cool to slate. */
   html[data-theme="daylight"] {
-    --bg:#f2efe6; --panel:#fbf9f3; --screen:#fffdf7; --line:#ddd6c4;
-    --phos:#1d4ed8; --amber:#b45309; --alert:#be123c; --ink:#3e4346; --dim:#8a8677;
+    --bg:#f2efe6; --panel:#fbf9f3; --screen:#fffdf7; --line:#ddd6c4; --ctl:#878780;
+    --phos:#1d4ed8; --amber:#954407; --alert:#be123c; --ink:#3e4346; --dim:#6f6b5f;
     --grid-axis:#cdc6b2; --grid-split:#e9e3d3; --cmp:#6b6656;
     --smoke:rgba(180,83,9,.22); --lossbar:rgba(190,18,60,.6); --glow:0;
     --smoke-hot:#e07a3a; --smoke-mid:#e8a878; --smoke-cool:#cfc8b8;
@@ -49,8 +49,8 @@
 
   /* Arctic — near-black trace. Cloud runs from deep sea to pale frost. */
   html[data-theme="arctic"] {
-    --bg:#eaeff4; --panel:#f7fafc; --screen:#fdfeff; --line:#d3dce5;
-    --phos:#0f172a; --amber:#0369a1; --alert:#dc2626; --ink:#3a4353; --dim:#7d8b99;
+    --bg:#eaeff4; --panel:#f7fafc; --screen:#fdfeff; --line:#d3dce5; --ctl:#7d8693;
+    --phos:#0f172a; --amber:#036093; --alert:#d02222; --ink:#3a4353; --dim:#5f6c79;
     --grid-axis:#c2cdd8; --grid-split:#e2e9f0; --cmp:#5b6878;
     --smoke:rgba(56,132,199,.22); --lossbar:rgba(220,38,38,.55); --glow:0;
     --smoke-hot:#4a9fd4; --smoke-mid:#8dc0e0; --smoke-cool:#cfe0ec;
@@ -59,8 +59,8 @@
 
   /* Budapest — Anderson's plum and rose. Core is deep raspberry, edges go powder. */
   html[data-theme="budapest"] {
-    --bg:#f7ebe8; --panel:#fdf5f2; --screen:#fffaf8; --line:#e6cfc8;
-    --phos:#5b2a4f; --amber:#c9754f; --alert:#c1362f; --ink:#4c3d41; --dim:#9c8087;
+    --bg:#f7ebe8; --panel:#fdf5f2; --screen:#fffaf8; --line:#e6cfc8; --ctl:#948280;
+    --phos:#5b2a4f; --amber:#8d492c; --alert:#c1362f; --ink:#4c3d41; --dim:#7f636a;
     --grid-axis:#dcc0b8; --grid-split:#f0e0da; --cmp:#7d5f66;
     --smoke:rgba(216,133,140,.26); --lossbar:rgba(193,54,47,.55); --glow:0;
     --smoke-hot:#e0748c; --smoke-mid:#eaa8ae; --smoke-cool:#f0dbd2;
@@ -71,8 +71,8 @@
      white-hot core, amber body, dying green at the fringe, exactly how a long
      persistence tube fades. The trace stays a cooler gold so it sits above it. */
   html[data-theme="amber"] {
-    --bg:#12100a; --panel:#1c1810; --screen:#0a0806; --line:#38301c;
-    --phos:#ffd75e; --amber:#ffd98a; --alert:#ff5f2e; --ink:#cebd95; --dim:#8f7b4e;
+    --bg:#12100a; --panel:#1c1810; --screen:#0a0806; --line:#38301c; --ctl:#71664a;
+    --phos:#ffd75e; --amber:#ffd98a; --alert:#ff5f2e; --ink:#cebd95; --dim:#958051;
     --grid-axis:#443a20; --grid-split:#1e1a10; --cmp:#8f7b4e;
     --smoke:rgba(255,176,0,.20); --lossbar:rgba(255,95,46,.65); --glow:7;
     --smoke-hot:#a86a10; --smoke-mid:#7d4508; --smoke-cool:#2f4429;
@@ -171,7 +171,7 @@
   .tgt .lnk.del { color:var(--alert); }
   .tgt form { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:12px; }
   .tgt input, .tgt select { font-family:var(--mono); font-size:var(--fs-small); color:var(--ink);
-            background:var(--screen); border:1px solid var(--line); border-radius:4px; padding:6px 8px; }
+            background:var(--screen); border:1px solid var(--ctl); border-radius:4px; padding:6px 8px; }
   .tgt input:focus, .tgt select:focus { outline:none; border-color:var(--phos); }
   #tgtErr { color:var(--alert); font-size:var(--fs-small); }
   /* Export / import of the target list (netping-targets file). */
@@ -194,11 +194,28 @@
   .ie-prev td.why { color:var(--dim); font-size:var(--fs-small); }
   .ie-prev .btns { display:flex; gap:8px; }
   .ie-prev button:disabled { opacity:.5; cursor:default; }
+  /* Accessibility. --ctl is the border of a form control: --line is a hairline
+     between panels (decoration), but a text field is only recognisable by its edge,
+     which WCAG 1.4.11 wants at 3:1. Focus rings use the accent for the same reason. */
+  :focus-visible { outline:2px solid var(--phos); outline-offset:2px; }
+  .skip { position:absolute; left:12px; top:-60px; z-index:20; background:var(--panel); color:var(--phos);
+          border:2px solid var(--phos); border-radius:6px; padding:8px 14px; font-weight:600; text-decoration:none; }
+  .skip:focus { top:12px; }
+  .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden;
+             clip:rect(0 0 0 0); white-space:nowrap; border:0; }
+  h1.mark { margin:0; }
+  #main:focus { outline:none; }
+  .rng { flex-wrap:wrap; max-width:100%; }
+  .rng.cmp, .rng.custom { border-color:var(--ctl); }
+  .rng.custom input { min-width:0; max-width:100%; }
+  .promo-b a, .share a, .tgt .lnk { display:inline-flex; align-items:center; min-height:24px; }
+  .promo-b > span { flex-wrap:wrap; max-width:100%; }
 </style>
 </head>
 <body>
+<a class="skip" href="#main">Skip to chart</a>
 <header>
-  <div class="mark">fogping <span class="brand-led"></span></div>
+  <h1 class="mark">fogping <span class="brand-led" aria-hidden="true"></span></h1>
   <div class="tag">One binary. One graph. One metric: Latency.</div>
   <div style="margin-left:auto; display:flex; gap:8px">
     <button class="pill" id="editBtn" title="add, edit or remove targets" style="display:none">✎ targets</button>
@@ -207,6 +224,7 @@
   </div>
 </header>
 
+<main id="main" tabindex="-1">
 <div class="row">
   <div class="rng" id="tfilter" style="display:none">
     <button data-t="all" class="on">All</button>
@@ -216,21 +234,28 @@
   <div class="pills" id="pills"></div>
 </div>
 
-<div class="scope tgt" id="tgtPanel" style="display:none">
+<section class="scope tgt" id="tgtPanel" style="display:none" aria-labelledby="tgtTitle">
+  <h2 class="sr-only" id="tgtTitle">Targets</h2>
   <table>
     <thead><tr><th>Name</th><th>Type</th><th>Address</th><th>Pace</th><th>Interval</th><th></th></tr></thead>
     <tbody id="tgtRows"></tbody>
   </table>
   <form id="tgtForm" autocomplete="off">
+    <label class="sr-only" for="fType">Type</label>
     <select id="fType"><option value="icmp">PING</option><option value="tcp">TCP</option></select>
+    <label class="sr-only" for="fHost">Host or IP</label>
     <input id="fHost" placeholder="host or IP" size="22" required>
+    <label class="sr-only" for="fPort">Port</label>
     <input id="fPort" type="number" min="1" max="65535" placeholder="port" style="width:84px; display:none">
+    <label class="sr-only" for="fName">Name (optional)</label>
     <input id="fName" placeholder="name (optional)" size="18" maxlength="64">
+    <label class="sr-only" for="fPace">Pace</label>
     <select id="fPace"><option value="normal">normal · 60s</option><option value="fast">fast · 15s</option><option value="slow">slow · 300s</option></select>
+    <label class="sr-only" for="fIv">Interval in seconds (overrides pace)</label>
     <input id="fIv" type="number" min="1" max="86400" placeholder="interval (s)" style="width:112px" title="overrides pace">
     <button class="pill" id="fSave" type="submit">+ add</button>
     <button class="pill" id="fCancel" type="button" style="display:none">cancel</button>
-    <span id="tgtErr"></span>
+    <span id="tgtErr" role="alert"></span>
   </form>
   <div class="ie">
     <a class="pill" id="ieExport" href="/api/targets/export" download title="Download the active targets as a JSON file">⇩ export</a>
@@ -249,10 +274,17 @@
       <button class="pill" id="ieCancel" type="button">cancel</button>
     </div>
   </div>
-</div>
+</section>
 
-<div class="scope">
-  <div class="crt"><div id="chart"></div></div>
+<section class="scope" aria-labelledby="chartTitle">
+  <h2 class="sr-only" id="chartTitle">Latency and packet loss</h2>
+  <div class="crt"><div id="chart" role="img" aria-label="Latency and packet-loss chart" aria-describedby="chartSum"></div></div>
+  <div class="sr-only" id="chartText">
+    <p id="chartSum"></p>
+    <table><caption>Chart data, oldest first</caption>
+      <thead><tr><th scope="col">Time</th><th scope="col">Median RTT (ms)</th><th scope="col">Worst loss (%)</th><th scope="col">Bursts</th></tr></thead>
+      <tbody id="chartRows"></tbody></table>
+  </div>
   <div class="readouts">
     <div class="ro"><div class="v" id="p50">–</div><div class="l">P50 MS</div></div>
     <div class="ro"><div class="v" id="p90">–</div><div class="l">P90 MS</div></div>
@@ -285,13 +317,16 @@
       </select>
     </div>
     <div class="rng custom">
+      <label class="sr-only" for="customFrom">From</label>
       <input type="datetime-local" id="customFrom" step="60">
-      <span class="sep">→</span>
+      <span class="sep" aria-hidden="true">→</span>
+      <label class="sr-only" for="customTo">To</label>
       <input type="datetime-local" id="customTo" step="60">
       <button id="customGo">Go</button>
     </div>
   </div>
-</div>
+</section>
+</main>
 
 <footer>
   <span id="conclusion"></span>
@@ -482,6 +517,30 @@ function niceCeil(v) {
   for (const k of [1, 2, 2.5, 5, 10]) if (v <= k * p) return k * p;
   return 10 * p;
 }
+// Text alternative for the canvas (WCAG 1.1.1): the window in one sentence, and the
+// history in at most 12 equal slices, so the shape of the curve is not visual-only.
+function describeChart(t, winLabel, info, st) {
+  const ts = Object.keys(info).map(Number).sort((a, b) => a - b);
+  const meds = ts.map(k => info[k].hourly ? (info[k].q ? info[k].q[1] : undefined) : (info[k].n ? info[k].med : undefined))
+                 .filter(v => v !== undefined);
+  let sum = `${t.name}${t.down ? ' (down)' : ''}, ${winLabel}: P50 ${st.p50} ms, P90 ${st.p90} ms, P99 ${st.p99} ms, loss ${st.loss}%, ${st.bursts} bursts.`;
+  if (meds.length) sum += ` Median RTT ranged from ${Math.min(...meds).toFixed(1)} to ${Math.max(...meds).toFixed(1)} ms over ${ts.length} ${info[ts[0]].hourly ? 'hours' : 'rounds'}.`;
+  else sum += ' No replies in this window.';
+  $('chartSum').textContent = sum;
+  const rows = $('chartRows'); rows.replaceChildren();
+  const n = Math.min(12, ts.length), when = ms => new Date(ms).toLocaleString([], { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  for (let i = 0; i < n; i++) {
+    const part = ts.slice(Math.floor(i * ts.length / n), Math.floor((i + 1) * ts.length / n));
+    if (!part.length) continue;
+    const m = part.map(k => info[k].hourly ? (info[k].q ? info[k].q[1] : undefined) : (info[k].n ? info[k].med : undefined)).filter(v => v !== undefined).sort((a, b) => a - b);
+    const loss = Math.max(...part.map(k => info[k].lp || 0));
+    const b = part.reduce((a, k) => a + (info[k].hourly ? info[k].bursts : (info[k].b ? 1 : 0)), 0);
+    const tr = document.createElement('tr');
+    [`${when(part[0])} – ${when(part[part.length - 1])}`, m.length ? m[Math.floor(m.length / 2)].toFixed(1) : '–', loss.toFixed(1), String(b)]
+      .forEach((v, j) => { const c = document.createElement(j ? 'td' : 'th'); if (!j) c.scope = 'row'; c.textContent = v; tr.append(c); });
+    rows.append(tr);
+  }
+}
 let renderSeq = 0;
 let inflight = null; // 正在飞的 series 请求 —— 新请求发起前先掐掉它,
                      // 否则快速点击会在服务端堆起一串没人要的慢查询,互相拖死。
@@ -609,6 +668,7 @@ async function renderInner(seq) {
 
   const winLabel = sel ? 'custom' : (document.querySelector('.rng button[data-m].on')?.textContent || minutes + 'm');
   $('conclusion').textContent = (t.down ? '🔴 ' : '🟢 ') + `${t.name}: ${winLabel} P99 ${fmt(p99)} ms · loss ${lossPct.toFixed(2)}% · ${bursts} bursts`;
+  describeChart(t, winLabel, roundInfo, { p50: fmt(p50), p90: fmt(p90), p99: fmt(p99), loss: lossPct.toFixed(2), bursts });
 
   // The main chart's own top (smoke + median); see the Y-axis guard further down.
   let mainTop = 0;
@@ -618,7 +678,7 @@ async function renderInner(seq) {
   const phos = cssv('--phos'), cmpColor = cssv('--cmp') || cssv('--dim');
   chart.setOption({
     animation: false,
-    grid: { left: 52, right: 46, top: 18, bottom: 42 },
+    grid: { left: 52, right: 46, top: 28, bottom: 42 },
     xAxis: { type: 'time', axisLine: { lineStyle: { color: cssv('--grid-axis') } },
              axisLabel: { color: cssv('--dim'), fontSize: 10,
                formatter: v => {
@@ -639,7 +699,9 @@ async function renderInner(seq) {
     yAxis: [
       { type: 'value', name: 'RTT ms', nameTextStyle: { color: cssv('--dim'), fontSize: 10 },
         axisLabel: { color: cssv('--dim'), fontSize: 10 }, splitLine: { lineStyle: { color: cssv('--grid-split') } } },
-      { type: 'value', max: 100, show: false }
+      // Loss has its own labelled axis, so the bars do not rely on colour alone.
+      { type: 'value', max: 100, name: 'loss %', nameTextStyle: { color: cssv('--dim'), fontSize: 10 },
+        axisLabel: { color: cssv('--dim'), fontSize: 10 }, splitLine: { show: false } }
     ],
     tooltip: { trigger: 'axis',
       backgroundColor: cssv('--panel'), borderColor: cssv('--line'),
