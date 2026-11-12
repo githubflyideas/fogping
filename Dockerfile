@@ -4,7 +4,7 @@
 # 与 json-ping 的区别：fogping 依赖 mattn/go-sqlite3（cgo），不能 CGO_ENABLED=0 交叉编译。
 # 这里用 tonistiigi/xx：构建机原生架构跑 clang，链接目标架构的 musl，静态产出，不走 QEMU。
 
-ARG GO_VERSION=1.24
+ARG GO_VERSION=1.27.4
 ARG XX_VERSION=1.6.1
 
 FROM --platform=$BUILDPLATFORM tonistiigi/xx:${XX_VERSION} AS xx
