@@ -1,0 +1,25 @@
+name: govulncheck
+
+# Known vulnerabilities in the Go toolchain and in the modules this binary
+# links, reachable from our code. Weekly too, because a new advisory can turn
+# an unchanged commit red.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  govulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - run: govulncheck ./...
