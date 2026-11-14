@@ -53,9 +53,16 @@ func main() {
 		fmt.Fprintf(os.Stderr, "fogping: %v\nRun './fogping --help' for examples.\n", err)
 		os.Exit(2)
 	}
-	users, err := parseAuthArgs(append(authArgs, flag.Args()...))
+	users, cliPasswd, err := resolveAuth(append(authArgs, flag.Args()...), os.Getenv)
 	if err != nil {
 		log.Fatalf("%v\nRun './fogping --help' for examples.", err)
+	}
+	// The variables have done their job; do not hand them to anything this
+	// process might start.
+	os.Unsetenv("FOGPING_PASSWD")
+	if cliPasswd {
+		log.Printf("WARNING: passwd= on the command line is visible to every account on this machine (ps, /proc) " +
+			"and lands in shell history. Prefer FOGPING_PASSWD=... in the environment or passwd-file=PATH.")
 	}
 	if *localOnly {
 		cfg.Listen = "127.0.0.1" + portOf(cfg.Listen)
@@ -133,9 +140,49 @@ func splitArgs(args []string) (flags, auth []string) {
 	return flags, auth
 }
 
+// resolveAuth finds the login from, in order: user=/passwd=/passwd-file= on the
+// command line, then FOGPING_USER with FOGPING_PASSWD or FOGPING_PASSWD_FILE in
+// the environment. cliPasswd reports a password given as passwd= on the command
+// line — which works, but every local account can read a process's arguments,
+// while its environment (/proc/<pid>/environ) and a 0600 file are private to
+// its owner.
+func resolveAuth(args []string, getenv func(string) string) (users map[string]string, cliPasswd bool, err error) {
+	hasUser, hasPw := false, false
+	for _, a := range args {
+		switch k, _, _ := strings.Cut(a, "="); k {
+		case "user", "users":
+			hasUser = true
+		case "passwd", "password", "passwords":
+			cliPasswd, hasPw = true, true
+		case "passwd-file":
+			hasPw = true
+		}
+	}
+	all := append([]string(nil), args...)
+	if u := getenv("FOGPING_USER"); u != "" && !hasUser {
+		all = append(all, "user="+u)
+	}
+	pw, pwFile := getenv("FOGPING_PASSWD"), getenv("FOGPING_PASSWD_FILE")
+	if !hasPw {
+		switch {
+		case pw != "" && pwFile != "":
+			return nil, false, fmt.Errorf("set FOGPING_PASSWD or FOGPING_PASSWD_FILE, not both")
+		case pwFile != "":
+			all = append(all, "passwd-file="+pwFile)
+		case pw != "":
+			all = append(all, "passwd="+pw)
+		}
+	}
+	users, err = parseAuthArgs(all)
+	return users, cliPasswd, err
+}
+
 // parseAuthArgs parses trailing "user=a,b passwd=x,y" arguments into a cred map.
+// passwd-file=PATH reads the passwords from a file instead, one per line, in the
+// order of user=.
 func parseAuthArgs(args []string) (map[string]string, error) {
 	var users, pws []string
+	fromFile := false
 	for _, a := range args {
 		k, v, ok := strings.Cut(a, "=")
 		if !ok {
@@ -145,9 +192,27 @@ func parseAuthArgs(args []string) (map[string]string, error) {
 		case "user", "users":
 			users = strings.Split(v, ",")
 		case "passwd", "password", "passwords":
+			if fromFile {
+				return nil, fmt.Errorf("give passwd= or passwd-file=, not both")
+			}
 			pws = strings.Split(v, ",")
+		case "passwd-file":
+			if pws != nil {
+				return nil, fmt.Errorf("give passwd= or passwd-file=, not both")
+			}
+			b, err := os.ReadFile(v)
+			if err != nil {
+				return nil, fmt.Errorf("passwd-file: %v", err)
+			}
+			fromFile = true
+			pws = []string{}
+			for _, line := range strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n") {
+				if line != "" {
+					pws = append(pws, line)
+				}
+			}
 		default:
-			return nil, fmt.Errorf("unknown key %q (expected user=, passwd=)", k)
+			return nil, fmt.Errorf("unknown key %q (expected user=, passwd=, passwd-file=)", k)
 		}
 	}
 	if len(users) == 0 && len(pws) == 0 {

@@ -40,6 +40,7 @@ Everything after the image name is passed to fogping as-is (`--edit`, `--days=30
 |---|---|
 | `FOGPING_EDIT=1` | `--edit` |
 | `FOGPING_USER=admin` / `FOGPING_PASSWD=change-me` | `user=admin passwd=change-me` (comma-separated for several) |
+| `FOGPING_PASSWD_FILE=/run/secrets/fogping` | `passwd-file=...` — one password per line; works with Docker secrets |
 | `FOGPING_DAYS=30` | `--days=30` (default and maximum 93) |
 
 `--edit` without a login is refused, as on bare metal. PING targets work without
@@ -135,6 +136,13 @@ host's addresses:
 ```bash
 ./fogping
 ```
+
+A password given as `passwd=` is visible to every account on the host in `ps`
+and stays in shell history; fogping warns when it sees one. Prefer the
+environment (`FOGPING_PASSWD='change-me' ./fogping user=admin`) or a file
+readable only by fogping (`passwd-file=/etc/fogping.pw`, one password per line,
+`chmod 600`). The Docker variables below are read by fogping itself and never
+become arguments.
 
 Require a login (recommended). Logins last 7 days; sessions live in memory, so a
 restart logs everyone out, and signing out ends the session on the server too.

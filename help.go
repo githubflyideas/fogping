@@ -68,8 +68,16 @@ FLAGS
   --days=N        days of history to keep (default 93, max 93)
   --version       print the version and exit
   user=  passwd=  turn on the login page (comma-separated lists)
+  passwd-file=F   read the passwords from file F instead, one per line
 
   Flags and user=/passwd= can be given in any order. The port is always 8518.
+
+  passwd= on the command line is readable by every account on this machine
+  (ps) and stays in shell history. To keep it private, put it in the
+  environment or a file instead:
+      FOGPING_PASSWD='change-me' ./fogping user=admin
+      ./fogping user=admin passwd-file=/etc/fogping.pw      # chmod 600
+  FOGPING_USER and FOGPING_PASSWD_FILE work the same way.
 
 Full guide, systemd unit, reverse proxy: https://github.com/githubflyideas/fogping
 `

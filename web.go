@@ -133,9 +133,9 @@ func newMux(cfg *Config, store *Store, run *Runner, users map[string]string) htt
 			subtle.ConstantTimeCompare([]byte(body.Pass), []byte(want)) != 1 {
 			time.Sleep(loginFailDelay)
 			if lock := throttle.fail(key); lock > 0 {
-				log.Printf("web login failed from %s; address locked for %v", r.RemoteAddr, lock)
+				log.Printf("web login failed for %q from %s; address locked for %v", body.User, r.RemoteAddr, lock)
 			} else {
-				log.Printf("web login failed from %s", r.RemoteAddr)
+				log.Printf("web login failed for %q from %s", body.User, r.RemoteAddr)
 			}
 			http.Error(w, `{"error":"auth"}`, http.StatusUnauthorized)
 			return
