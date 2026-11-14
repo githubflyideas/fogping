@@ -4,6 +4,8 @@ on:
     tags: ['v*']
 permissions:
   contents: write
+  id-token: write      # Sigstore signing for the build provenance
+  attestations: write  # store it with the repository
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
@@ -21,3 +23,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+      # Signed build provenance for every published file: proves it was built
+      # by this workflow from this repository at this tag. Verify with
+      #   gh attestation verify <file> -R githubflyideas/fogping
+      # Runs after publishing, so a failure here cannot hold a release back.
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.sbom.json
+            dist/SHA256SUMS
