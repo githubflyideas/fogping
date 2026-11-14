@@ -42,6 +42,11 @@ archives:
           owner: root
           group: root
 
+# One SPDX SBOM per archive (needs syft on PATH; the release workflow installs
+# it). Listed in SHA256SUMS like the archives.
+sboms:
+  - artifacts: archive
+
 checksum:
   name_template: "SHA256SUMS"
 

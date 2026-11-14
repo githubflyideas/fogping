@@ -19,8 +19,11 @@ release notes of the version that fixes them, with credit if you want it.
 
 - fogping does not terminate TLS. Put it behind a reverse proxy with TLS, or bind
   it to localhost, when it is reachable beyond a trusted network.
-- Release archives carry SHA-256 checksums (`SHA256SUMS`); they are not
-  signed yet.
+- Every release file has signed build provenance (Sigstore, via GitHub
+  artifact attestations) and an SPDX SBOM (`*.sbom.json`). To check that a
+  download was built by this repository's release workflow:
+  `gh attestation verify <file> -R githubflyideas/fogping`. `SHA256SUMS` lists
+  SHA-256 sums for everything, SBOMs included.
 - Dependencies and the Go toolchain are checked with `govulncheck` on every
   push and weekly.
 - Pass the login password through `FOGPING_PASSWD` or `passwd-file=`, not
