@@ -19,8 +19,7 @@ release notes of the version that fixes them, with credit if you want it.
 
 - fogping does not terminate TLS. Put it behind a reverse proxy with TLS, or bind
   it to localhost, when it is reachable beyond a trusted network.
-- Release archives carry SHA-256 checksums (`SHA256SUMS`); they are not
-  signed yet.
+- Release archives carry SHA-256 checksums (`SHA256SUMS`).
 - Dependencies and the Go toolchain are checked with `govulncheck` on every
   push and weekly.
 - Pass the login password through `FOGPING_PASSWD` or `passwd-file=`, not
