@@ -15,9 +15,10 @@ type Config struct {
 	Listen        string
 	DataDir       string
 	Probe         ProbeCfg
-	HotDays       int  // full samples kept this long
-	RetentionDays int  // downsampled data kept this long
-	Editable      bool // --edit: web UI may create/update/delete targets
+	HotDays       int    // full samples kept this long
+	RetentionDays int    // downsampled data kept this long
+	Editable      bool   // --edit: web UI may create/update/delete targets
+	StatsToken    string // non-empty turns on GET /api/stats (stats.go)
 }
 
 func defaultConfig() *Config {

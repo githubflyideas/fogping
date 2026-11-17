@@ -79,6 +79,10 @@ FLAGS
       ./fogping user=admin passwd-file=/etc/fogping.pw      # chmod 600
   FOGPING_USER and FOGPING_PASSWD_FILE work the same way.
 
+  Optional, off unless set: FOGPING_STATS_TOKEN (or FOGPING_STATS_TOKEN_FILE,
+  stats-token-file=F) turns on a read-only GET /api/stats for the Zabbix
+  template in zabbix/ of the repository.
+
 Full guide, systemd unit, reverse proxy: https://github.com/githubflyideas/fogping
 `
 

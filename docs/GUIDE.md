@@ -488,3 +488,11 @@ external database. Targets are rows in the same SQLite file; there is no config 
 
 Sibling project: [pingping](https://github.com/githubflyideas/pingping) — the same
 oscilloscope without cgo.
+
+## Zabbix (optional)
+
+fogping can hand its latency summary to Zabbix: median, p90, p99, loss and loss
+bursts per target, discovered automatically. It is off unless you give fogping
+a stats token (`FOGPING_STATS_TOKEN` or `FOGPING_STATS_TOKEN_FILE`); without one
+nothing changes. The template and step-by-step setup are in
+[`zabbix/template_fogping/7.0`](../zabbix/template_fogping/7.0/README.md).

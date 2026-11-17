@@ -53,13 +53,18 @@ func main() {
 		fmt.Fprintf(os.Stderr, "fogping: %v\nRun './fogping --help' for examples.\n", err)
 		os.Exit(2)
 	}
-	users, cliPasswd, err := resolveAuth(append(authArgs, flag.Args()...), os.Getenv)
+	statsToken, kvArgs, err := resolveStatsToken(append(authArgs, flag.Args()...), os.Getenv)
+	if err != nil {
+		log.Fatalf("%v\nRun './fogping --help' for examples.", err)
+	}
+	users, cliPasswd, err := resolveAuth(kvArgs, os.Getenv)
 	if err != nil {
 		log.Fatalf("%v\nRun './fogping --help' for examples.", err)
 	}
 	// The variables have done their job; do not hand them to anything this
 	// process might start.
 	os.Unsetenv("FOGPING_PASSWD")
+	os.Unsetenv("FOGPING_STATS_TOKEN")
 	if cliPasswd {
 		log.Printf("WARNING: passwd= on the command line is visible to every account on this machine (ps, /proc) " +
 			"and lands in shell history. Prefer FOGPING_PASSWD=... in the environment or passwd-file=PATH.")
@@ -68,6 +73,10 @@ func main() {
 		cfg.Listen = "127.0.0.1" + portOf(cfg.Listen)
 	}
 	cfg.Editable = *edit
+	cfg.StatsToken = statsToken
+	if statsToken != "" {
+		log.Printf("stats API on: GET /api/stats with the stats token (for the Zabbix template)")
+	}
 	// An open, writable UI would let anyone who can reach the port make this host
 	// ping or TCP-connect to arbitrary addresses. Refuse rather than warn.
 	if cfg.Editable && len(users) == 0 && !*localOnly {

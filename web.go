@@ -311,6 +311,8 @@ func newMux(cfg *Config, store *Store, run *Runner, users map[string]string) htt
 		writeJSON(w, store.ReadRange(r.Context(), name, from, to))
 	}))
 
+	registerStats(mux, cfg.StatsToken, store, run)
+
 	return securityHeaders(mux)
 }
 
