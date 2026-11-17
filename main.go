@@ -22,6 +22,7 @@ func main() {
 	days := flag.Int("days", defaultDays, fmt.Sprintf("days of history to keep (max %d); UI hides windows beyond this", maxDays))
 	edit := flag.Bool("edit", false, "allow adding/editing/deleting targets from the web UI (default: read-only)")
 	showVer := flag.Bool("version", false, "print version")
+	zabbix := flag.Bool("zabbix", false, "serve a read-only GET /api/stats for the Zabbix template (needs FOGPING_ZABBIX_TOKEN)")
 	args := os.Args[1:]
 	for _, a := range args {
 		if a == "help" { // `fogping help` would otherwise be rejected as a bad auth arg
@@ -53,7 +54,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "fogping: %v\nRun './fogping --help' for examples.\n", err)
 		os.Exit(2)
 	}
-	statsToken, kvArgs, err := resolveStatsToken(append(authArgs, flag.Args()...), os.Getenv)
+	statsToken, kvArgs, tokenIgnored, err := resolveZabbixToken(*zabbix, append(authArgs, flag.Args()...), os.Getenv)
 	if err != nil {
 		log.Fatalf("%v\nRun './fogping --help' for examples.", err)
 	}
@@ -64,7 +65,10 @@ func main() {
 	// The variables have done their job; do not hand them to anything this
 	// process might start.
 	os.Unsetenv("FOGPING_PASSWD")
-	os.Unsetenv("FOGPING_STATS_TOKEN")
+	os.Unsetenv("FOGPING_ZABBIX_TOKEN")
+	if tokenIgnored {
+		log.Printf("note: a Zabbix token is set but --zabbix was not given; the Zabbix stats API stays off")
+	}
 	if cliPasswd {
 		log.Printf("WARNING: passwd= on the command line is visible to every account on this machine (ps, /proc) " +
 			"and lands in shell history. Prefer FOGPING_PASSWD=... in the environment or passwd-file=PATH.")
@@ -75,7 +79,7 @@ func main() {
 	cfg.Editable = *edit
 	cfg.StatsToken = statsToken
 	if statsToken != "" {
-		log.Printf("stats API on: GET /api/stats with the stats token (for the Zabbix template)")
+		log.Printf("zabbix: on — read-only GET /api/stats for the Zabbix template")
 	}
 	// An open, writable UI would let anyone who can reach the port make this host
 	// ping or TCP-connect to arbitrary addresses. Refuse rather than warn.

@@ -8,6 +8,10 @@ case "${FOGPING_EDIT:-}" in
   1|true|TRUE|yes|on) set -- --edit "$@" ;;
 esac
 
+case "${FOGPING_ZABBIX:-}" in
+  1|true|TRUE|yes|on) set -- --zabbix "$@" ;;
+esac
+
 if [ -n "${FOGPING_DAYS:-}" ]; then
   set -- "--days=${FOGPING_DAYS}" "$@"
 fi

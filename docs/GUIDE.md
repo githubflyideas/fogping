@@ -42,6 +42,7 @@ Everything after the image name is passed to fogping as-is (`--edit`, `--days=30
 | `FOGPING_USER=admin` / `FOGPING_PASSWD=change-me` | `user=admin passwd=change-me` (comma-separated for several) |
 | `FOGPING_PASSWD_FILE=/run/secrets/fogping` | `passwd-file=...` — one password per line; works with Docker secrets |
 | `FOGPING_DAYS=30` | `--days=30` (default and maximum 93) |
+| `FOGPING_ZABBIX=1` + `FOGPING_ZABBIX_TOKEN=...` | `--zabbix` (optional Zabbix stats, see below) |
 
 `--edit` without a login is refused, as on bare metal. PING targets work without
 extra capabilities on Docker 20.10+; `--user` keeps the mounted directory writable by you.
@@ -492,7 +493,8 @@ oscilloscope without cgo.
 ## Zabbix (optional)
 
 fogping can hand its latency summary to Zabbix: median, p90, p99, loss and loss
-bursts per target, discovered automatically. It is off unless you give fogping
-a stats token (`FOGPING_STATS_TOKEN` or `FOGPING_STATS_TOKEN_FILE`); without one
+bursts per target, discovered automatically. It is off unless you start fogping
+with `--zabbix` plus a token (`FOGPING_ZABBIX_TOKEN` or
+`FOGPING_ZABBIX_TOKEN_FILE`; in Docker `FOGPING_ZABBIX=1`); without `--zabbix`
 nothing changes. The template and step-by-step setup are in
 [`zabbix/template_fogping/7.0`](../zabbix/template_fogping/7.0/README.md).

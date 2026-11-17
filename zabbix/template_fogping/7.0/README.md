@@ -32,32 +32,33 @@ target in fogping keeps its history.
   - `loss burst flagged` (Info), suppressed while the loss trigger is active,
     so a dead target raises one problem, not two;
   - `no data from {$FOGPING.URL} for 5m` (Warning), on the template itself:
-    fogping unreachable, wrong token, or stats not enabled.
+    fogping unreachable, wrong token, or started without `--zabbix`.
 
 A target with no replies in the window (down, or a slow target with no round
 yet) gets no latency values rather than zeros.
 
 ## Setup
 
-**1. Turn on fogping's stats API.** It is off by default. Give fogping a token
-of at least 16 characters, through the environment or a file, never on the
-command line:
+**1. Start fogping with `--zabbix`.** It is off by default. `--zabbix` needs a
+token of at least 16 characters, given through the environment or a file,
+never on the command line:
 
 ```bash
-openssl rand -hex 24 > /etc/fogping.stats-token && chmod 600 /etc/fogping.stats-token
-FOGPING_STATS_TOKEN_FILE=/etc/fogping.stats-token ./fogping user=admin
-# or: FOGPING_STATS_TOKEN=<token> ./fogping ...
+openssl rand -hex 24 > /etc/fogping.zabbix-token && chmod 600 /etc/fogping.zabbix-token
+FOGPING_ZABBIX_TOKEN_FILE=/etc/fogping.zabbix-token ./fogping --zabbix user=admin
+# or: FOGPING_ZABBIX_TOKEN=<token> ./fogping --zabbix ...
+# Docker: -e FOGPING_ZABBIX=1 -e FOGPING_ZABBIX_TOKEN=<token>
 ```
 
-fogping logs `stats API on` when it starts. Check it from the Zabbix server or
+fogping logs `zabbix: on` when it starts. Check it from the Zabbix server or
 proxy:
 
 ```bash
-curl -H "Authorization: Bearer $(cat /etc/fogping.stats-token)" http://<fogping-host>:8518/api/stats
+curl -H "Authorization: Bearer $(cat /etc/fogping.zabbix-token)" http://<fogping-host>:8518/api/stats
 ```
 
 You should see `{"window_sec":300,"targets":[...]}`. A `401` means the token is
-wrong; a `404` means fogping was started without a token.
+wrong; a `404` means fogping was started without `--zabbix`.
 
 **2. Import the template.** *Data collection → Templates → Import*, choose
 `template_fogping.yaml`.

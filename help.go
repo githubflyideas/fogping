@@ -67,6 +67,7 @@ FLAGS
   --localhost     listen on 127.0.0.1:8518 instead of all interfaces (0.0.0.0:8518)
   --days=N        days of history to keep (default 93, max 93)
   --version       print the version and exit
+  --zabbix        serve read-only stats to the Zabbix template (needs a token, see below)
   user=  passwd=  turn on the login page (comma-separated lists)
   passwd-file=F   read the passwords from file F instead, one per line
 
@@ -79,9 +80,9 @@ FLAGS
       ./fogping user=admin passwd-file=/etc/fogping.pw      # chmod 600
   FOGPING_USER and FOGPING_PASSWD_FILE work the same way.
 
-  Optional, off unless set: FOGPING_STATS_TOKEN (or FOGPING_STATS_TOKEN_FILE,
-  stats-token-file=F) turns on a read-only GET /api/stats for the Zabbix
-  template in zabbix/ of the repository.
+  Optional: --zabbix with FOGPING_ZABBIX_TOKEN (or FOGPING_ZABBIX_TOKEN_FILE,
+  zabbix-token-file=F) serves a read-only GET /api/stats for the Zabbix
+  template in zabbix/ of the repository. Without --zabbix nothing changes.
 
 Full guide, systemd unit, reverse proxy: https://github.com/githubflyideas/fogping
 `

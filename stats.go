@@ -11,7 +11,7 @@ import (
 
 // Read-only statistics for Zabbix (zabbix/README.md).
 //
-// Off unless a stats token is configured, and off means absent: no route, no
+// Off unless fogping runs with --zabbix (and a token), and off means absent: no route, no
 // help text the user has to read, nothing in the UI. fogping without it is
 // exactly fogping. With a token, GET /api/stats returns the latest summary of
 // every target — percentiles, loss, bursts — and nothing else: no hosts, no
@@ -45,45 +45,57 @@ type statsReport struct {
 	Targets   []statsTarget `json:"targets"`
 }
 
-// resolveStatsToken takes stats-token-file=PATH out of the key=value arguments,
-// then falls back to FOGPING_STATS_TOKEN / FOGPING_STATS_TOKEN_FILE. An empty
-// result means the integration is off.
-func resolveStatsToken(args []string, getenv func(string) string) (token string, rest []string, err error) {
+// resolveZabbixToken takes zabbix-token-file=PATH out of the key=value
+// arguments (always, so the login parser never sees it), then reads the token
+// from that file or from FOGPING_ZABBIX_TOKEN / FOGPING_ZABBIX_TOKEN_FILE.
+//
+// Without --zabbix (enabled=false) the token is ignored and the integration is
+// off; ignored reports that one was supplied anyway, so main can say so. With
+// --zabbix a token is required: an open stats endpoint is never an option.
+func resolveZabbixToken(enabled bool, args []string, getenv func(string) string) (token string, rest []string, ignored bool, err error) {
 	file := ""
 	for _, a := range args {
-		if v, ok := strings.CutPrefix(a, "stats-token-file="); ok {
+		if v, ok := strings.CutPrefix(a, "zabbix-token-file="); ok {
 			file = v
 			continue
 		}
 		rest = append(rest, a)
 	}
+	envTok, envFile := getenv("FOGPING_ZABBIX_TOKEN"), getenv("FOGPING_ZABBIX_TOKEN_FILE")
+	if !enabled {
+		return "", rest, file != "" || envTok != "" || envFile != "", nil
+	}
 	if file == "" {
-		if token = getenv("FOGPING_STATS_TOKEN"); token != "" {
-			if getenv("FOGPING_STATS_TOKEN_FILE") != "" {
-				return "", rest, errStr("set FOGPING_STATS_TOKEN or FOGPING_STATS_TOKEN_FILE, not both")
-			}
-		} else {
-			file = getenv("FOGPING_STATS_TOKEN_FILE")
+		switch {
+		case envTok != "" && envFile != "":
+			return "", rest, false, errStr("set FOGPING_ZABBIX_TOKEN or FOGPING_ZABBIX_TOKEN_FILE, not both")
+		case envTok != "":
+			token = envTok
+		default:
+			file = envFile
 		}
 	}
 	if file != "" {
 		b, err := os.ReadFile(file)
 		if err != nil {
-			return "", rest, errStr("stats token file: " + err.Error())
+			return "", rest, false, errStr("zabbix token file: " + err.Error())
 		}
 		token = strings.TrimSpace(string(b))
 	}
-	if token != "" && len(token) < 16 {
-		return "", rest, errStr("stats token must be at least 16 characters")
+	if token == "" {
+		return "", rest, false, errStr("--zabbix needs a token: set FOGPING_ZABBIX_TOKEN=... or FOGPING_ZABBIX_TOKEN_FILE=PATH (or zabbix-token-file=PATH)")
 	}
-	return token, rest, nil
+	if len(token) < 16 {
+		return "", rest, false, errStr("zabbix token must be at least 16 characters")
+	}
+	return token, rest, false, nil
 }
 
 type errStr string
 
 func (e errStr) Error() string { return string(e) }
 
-// registerStats adds GET /api/stats when a token is configured, and nothing
+// registerStats adds GET /api/stats when --zabbix gave a token, and nothing
 // otherwise.
 func registerStats(mux *http.ServeMux, token string, store *Store, run *Runner) {
 	if token == "" {

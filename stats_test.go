@@ -137,28 +137,38 @@ func TestStatsEndpoint(t *testing.T) {
 	}
 }
 
-func TestResolveStatsToken(t *testing.T) {
+func TestResolveZabbixToken(t *testing.T) {
 	dir := t.TempDir()
 	f := filepath.Join(dir, "tok")
 	os.WriteFile(f, []byte(testStatsToken+"\n"), 0600)
 	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+	withTok := env(map[string]string{"FOGPING_ZABBIX_TOKEN": testStatsToken})
 
-	if tok, rest, err := resolveStatsToken([]string{"user=a", "passwd=b"}, env(nil)); err != nil || tok != "" || len(rest) != 2 {
-		t.Errorf("default must be off: %q %v %v", tok, rest, err)
+	// Default: off, login args untouched.
+	if tok, rest, ign, err := resolveZabbixToken(false, []string{"user=a", "passwd=b"}, env(nil)); err != nil || tok != "" || ign || len(rest) != 2 {
+		t.Errorf("default must be off: %q %v %v %v", tok, rest, ign, err)
 	}
-	if tok, rest, err := resolveStatsToken([]string{"user=a", "stats-token-file=" + f}, env(nil)); err != nil || tok != testStatsToken || len(rest) != 1 {
-		t.Errorf("file arg: %q %v %v", tok, rest, err)
+	// A token without --zabbix is ignored (and reported), never an error.
+	if tok, rest, ign, err := resolveZabbixToken(false, []string{"user=a", "zabbix-token-file=" + f}, withTok); err != nil || tok != "" || !ign || len(rest) != 1 {
+		t.Errorf("token without --zabbix: %q %v %v %v", tok, rest, ign, err)
 	}
-	if tok, _, err := resolveStatsToken(nil, env(map[string]string{"FOGPING_STATS_TOKEN": testStatsToken})); err != nil || tok != testStatsToken {
+	// --zabbix without a token refuses to start.
+	if _, _, _, err := resolveZabbixToken(true, nil, env(nil)); err == nil || !strings.Contains(err.Error(), "--zabbix needs a token") {
+		t.Errorf("--zabbix without token: %v", err)
+	}
+	if tok, _, _, err := resolveZabbixToken(true, nil, withTok); err != nil || tok != testStatsToken {
 		t.Errorf("env: %q %v", tok, err)
 	}
-	if tok, _, err := resolveStatsToken(nil, env(map[string]string{"FOGPING_STATS_TOKEN_FILE": f})); err != nil || tok != testStatsToken {
+	if tok, rest, _, err := resolveZabbixToken(true, []string{"user=a", "zabbix-token-file=" + f}, env(nil)); err != nil || tok != testStatsToken || len(rest) != 1 {
+		t.Errorf("file arg: %q %v %v", tok, rest, err)
+	}
+	if tok, _, _, err := resolveZabbixToken(true, nil, env(map[string]string{"FOGPING_ZABBIX_TOKEN_FILE": f})); err != nil || tok != testStatsToken {
 		t.Errorf("env file: %q %v", tok, err)
 	}
-	if _, _, err := resolveStatsToken(nil, env(map[string]string{"FOGPING_STATS_TOKEN": "short"})); err == nil {
+	if _, _, _, err := resolveZabbixToken(true, nil, env(map[string]string{"FOGPING_ZABBIX_TOKEN": "short"})); err == nil {
 		t.Error("a short token was accepted")
 	}
-	if _, _, err := resolveStatsToken(nil, env(map[string]string{"FOGPING_STATS_TOKEN": testStatsToken, "FOGPING_STATS_TOKEN_FILE": f})); err == nil {
+	if _, _, _, err := resolveZabbixToken(true, nil, env(map[string]string{"FOGPING_ZABBIX_TOKEN": testStatsToken, "FOGPING_ZABBIX_TOKEN_FILE": f})); err == nil {
 		t.Error("both env sources accepted")
 	}
 }

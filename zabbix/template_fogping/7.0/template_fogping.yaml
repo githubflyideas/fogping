@@ -37,7 +37,7 @@ zabbix_export:
               expression: 'nodata(/fogping by HTTP/fogping.stats.get,5m)=1'
               name: 'fogping: no data from {$FOGPING.URL} for 5m'
               priority: WARNING
-              description: 'fogping is unreachable, the token is wrong, or the stats API is not enabled.'
+              description: 'fogping is unreachable, the token is wrong, or fogping runs without --zabbix.'
       discovery_rules:
         - uuid: e35c45f5b13a4df9ac7213e0aaf41920
           name: 'fogping: Targets discovery'
@@ -184,7 +184,7 @@ zabbix_export:
       macros:
         - macro: '{$FOGPING.TOKEN}'
           type: SECRET_TEXT
-          description: 'The stats token fogping was started with (FOGPING_STATS_TOKEN).'
+          description: 'The token fogping was started with (FOGPING_ZABBIX_TOKEN).'
         - macro: '{$FOGPING.URL}'
           value: 'http://fogping.example:8518'
           description: 'fogping base URL, no trailing slash.'
