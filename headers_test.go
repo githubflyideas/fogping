@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -158,5 +159,33 @@ func TestPageScriptsAllCovered(t *testing.T) {
 		if strings.Contains(src, "javascript:") {
 			t.Errorf("%s: javascript: URL is blocked by the CSP", page)
 		}
+	}
+}
+
+// The console has no advertising: its footer is one line, the project name and
+// version on the left and a link to the repository on the right.
+func TestNoAds(t *testing.T) {
+	entries, err := os.ReadDir("static")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			t.Errorf("static/%s: unexpected directory (ad images used to live in static/ads)", e.Name())
+			continue
+		}
+		if e.Name() == "echarts.min.js" {
+			continue // a vendored library
+		}
+		b, _ := os.ReadFile("static/" + e.Name())
+		for _, bad := range []string{"sponsor", "Sponsor", "SPONSOR", "Powered by", "/static/ads/", "loadSponsor"} {
+			if strings.Contains(string(b), bad) {
+				t.Errorf("static/%s contains %q", e.Name(), bad)
+			}
+		}
+	}
+	b, _ := os.ReadFile("static/index.html")
+	if !strings.Contains(string(b), "fogping on GitHub") || !strings.Contains(string(b), `id="ver"`) {
+		t.Error("the footer bar (name, version, repository link) is missing")
 	}
 }

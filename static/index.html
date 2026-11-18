@@ -142,23 +142,16 @@
   #conclusion { color:var(--ink); font-family:var(--mono); font-weight:600;
                 font-size:var(--fs-body); }
   .legend { color:var(--dim); font-family:var(--sans); font-size:var(--fs-small); }
-  .promos { margin-top:16px; }
-  .promo { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px;
+  .site-foot { margin-top:16px; }
+  .foot-card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px;
            box-shadow:var(--shadow); text-decoration:none; display:block; }
-  .promo.sponsor { border-style:dashed; }
-  .promo.sponsor:hover { border-color:var(--phos); }
-  .promo-h { font-family:var(--sans); font-size:var(--fs-micro); font-weight:700;
+  .foot-name { font-family:var(--sans); font-size:var(--fs-micro); font-weight:700;
              letter-spacing:.16em; color:var(--dim); margin-bottom:7px; text-transform:uppercase; }
-  .promo-b { color:var(--ink); font-size:var(--fs-body); display:flex; gap:16px;
+  .foot-body { color:var(--ink); font-size:var(--fs-body); display:flex; gap:16px;
              align-items:center; justify-content:space-between; flex-wrap:wrap; }
-  .promo-b a { color:var(--phos); text-decoration:none; font-weight:600; white-space:nowrap; }
-  .promo-b a:hover { text-decoration:underline; }
-  .promo-h #ver { color:var(--phos); font-family:var(--mono); letter-spacing:0; font-weight:600; }
-  .share .promo-b { display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
-  .share a { color:var(--phos); text-decoration:none; font-weight:600; }
-  .share a:hover { text-decoration:underline; }
-  .share-links { display:flex; gap:12px; }
-  .share-links a { color:var(--dim); font-weight:500; }
+  .foot-body a { color:var(--phos); text-decoration:none; font-weight:600; white-space:nowrap; }
+  .foot-body a:hover { text-decoration:underline; }
+  .foot-name #ver { color:var(--phos); font-family:var(--mono); letter-spacing:0; font-weight:600; }
   /* Target editor — only rendered when the server runs with --edit. */
   .tgt { margin-bottom:14px; }
   .tgt table { width:100%; border-collapse:collapse; font-size:var(--fs-body); }
@@ -208,8 +201,8 @@
   .rng { flex-wrap:wrap; max-width:100%; }
   .rng.cmp, .rng.custom { border-color:var(--ctl); }
   .rng.custom input { min-width:0; max-width:100%; }
-  .promo-b a, .share a, .tgt .lnk { display:inline-flex; align-items:center; min-height:24px; }
-  .promo-b > span { flex-wrap:wrap; max-width:100%; }
+  .foot-body a, .tgt .lnk { display:inline-flex; align-items:center; min-height:24px; }
+  .foot-body > span { flex-wrap:wrap; max-width:100%; }
 </style>
 </head>
 <body>
@@ -333,14 +326,12 @@
   <span class="legend" id="legend">Line = per-round median · Smoke = all samples · Red bars = loss% · ◆ = burst</span>
 </footer>
 
-<div class="promos">
-  <div class="promo sponsor" id="sponsorSlot">
-    <div class="promo-h">SPONSOR <span id="ver"></span></div>
-    <div class="promo-b">
-      <span>This slot is for one VPS / IDC / network sponsor — your GIF here.</span>
+<div class="site-foot">
+  <div class="foot-card">
+    <div class="foot-body">
+      <span class="foot-name" style="margin:0">fogping <span id="ver"></span></span>
       <span style="display:flex; gap:16px; align-items:center;">
-        <a href="https://github.com/githubflyideas/fogping" target="_blank" rel="noopener">Powered by Fogping</a>
-        <a href="https://github.com/githubflyideas/fogping" target="_blank" rel="noopener">★ Star on GitHub</a>
+        <a href="https://github.com/githubflyideas/fogping" target="_blank" rel="noopener">fogping on GitHub</a>
       </span>
     </div>
   </div>
