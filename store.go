@@ -384,12 +384,14 @@ func (s *Store) queryRaw(ctx context.Context, name string, from, to int64) []Rou
 		var blob []byte
 		var b int
 		if err := rows.Scan(&r.T, &r.S, &r.R, &blob, &b, &r.Z); err != nil {
+			log.Printf("scan raw: %v", err)
 			break
 		}
 		r.MS = unpackSamples(blob)
 		r.B = b != 0
 		out = append(out, r)
 	}
+	logRowsErr(ctx, "read raw", rows)
 	return out
 }
 
@@ -421,7 +423,18 @@ func (s *Store) queryHourly(ctx context.Context, name string, from, to int64) []
 		}
 		out = append(out, b)
 	}
+	logRowsErr(ctx, "read hourly", rows)
 	return out
+}
+
+// logRowsErr reports an error that ended a result set early. Without it a read
+// that fails half way looks like a shorter series: the chart draws what arrived
+// and nothing says the rest is missing. A client that went away (ctx done) is
+// not a fault and is not logged.
+func logRowsErr(ctx context.Context, what string, rows *sql.Rows) {
+	if err := rows.Err(); err != nil && ctx.Err() == nil {
+		log.Printf("%s: %v", what, err)
+	}
 }
 
 // Rollup recomputes every hourly bucket from `since` onward, in one streaming pass
