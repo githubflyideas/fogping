@@ -102,13 +102,8 @@ func registerStats(mux *http.ServeMux, token string, store *Store, run *Runner) 
 		return
 	}
 	throttle := newLoginThrottle() // wrong tokens are guesses too
-	mux.HandleFunc("/api/stats", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/stats", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			w.Header().Set("Allow", "GET")
-			jsonErr(w, http.StatusMethodNotAllowed, "read-only")
-			return
-		}
 		key := loginClientKey(r)
 		if wait, ok := throttle.begin(key); !ok {
 			w.Header().Set("Retry-After", retryAfter(wait))
@@ -120,7 +115,7 @@ func registerStats(mux *http.ServeMux, token string, store *Store, run *Runner) 
 			if lock := throttle.fail(key); lock > 0 {
 				log.Printf("stats: bad token from %s; address locked for %v", r.RemoteAddr, lock)
 			}
-			jsonErr(w, http.StatusUnauthorized, "unauthorized")
+			jsonErr(w, http.StatusUnauthorized, "bad or missing token")
 			return
 		}
 		throttle.success(key)

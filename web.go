@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -78,7 +79,7 @@ func newMux(cfg *Config, store *Store, run *Runner, users map[string]string) htt
 	guard := func(h http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if !authed(r) {
-				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				jsonErr(w, http.StatusUnauthorized, "sign in first")
 				return
 			}
 			t0 := time.Now()
@@ -99,27 +100,22 @@ func newMux(cfg *Config, store *Store, run *Runner, users map[string]string) htt
 	}
 
 	index := page("index.html")
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
-			http.NotFound(w, r)
-			return
-		}
+	// Pages are bound to GET like every endpoint, so the router itself can tell a
+	// wrong method (405) from a wrong path (404) — a catch-all "/" would answer
+	// every request it does not recognise with 404, API calls included.
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		if !authed(r) {
 			http.Redirect(w, r, "/login", http.StatusFound)
 			return
 		}
 		index(w, r)
 	})
-	mux.HandleFunc("/login", page("login.html"))
-	mux.Handle("/static/", http.FileServer(http.FS(staticFS)))
+	mux.HandleFunc("GET /login", page("login.html"))
+	mux.Handle("GET /static/", http.FileServer(http.FS(staticFS)))
 
 	// login: constant-time compare, 1s delay on failure, and a per-address lockout
 	// after repeated failures (see loginthrottle.go).
-	mux.HandleFunc("/api/login", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "POST only", http.StatusMethodNotAllowed)
-			return
-		}
+	mux.HandleFunc("POST /api/login", func(w http.ResponseWriter, r *http.Request) {
 		key := loginClientKey(r)
 		if wait, ok := throttle.begin(key); !ok {
 			w.Header().Set("Retry-After", retryAfter(wait))
@@ -137,7 +133,7 @@ func newMux(cfg *Config, store *Store, run *Runner, users map[string]string) htt
 			} else {
 				log.Printf("web login failed for %q from %s", body.User, r.RemoteAddr)
 			}
-			http.Error(w, `{"error":"auth"}`, http.StatusUnauthorized)
+			jsonErr(w, http.StatusUnauthorized, "wrong username or password")
 			return
 		}
 		throttle.success(key)
@@ -145,7 +141,7 @@ func newMux(cfg *Config, store *Store, run *Runner, users map[string]string) htt
 			Path: "/", HttpOnly: true, MaxAge: 7 * 24 * 3600, SameSite: http.SameSiteLaxMode})
 		writeJSON(w, map[string]bool{"ok": true})
 	})
-	mux.HandleFunc("/api/logout", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /api/logout", func(w http.ResponseWriter, r *http.Request) {
 		if c, err := r.Cookie("fogping_session"); err == nil {
 			sess.revoke(c.Value) // otherwise the token stays valid until it expires
 		}
@@ -155,7 +151,7 @@ func newMux(cfg *Config, store *Store, run *Runner, users map[string]string) htt
 
 	// version is public (it is in every release download anyway); the instance's
 	// settings are not, once a login is configured.
-	mux.HandleFunc("/api/version", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/version", func(w http.ResponseWriter, r *http.Request) {
 		if !authed(r) {
 			writeJSON(w, map[string]any{"version": version})
 			return
@@ -232,8 +228,16 @@ func newMux(cfg *Config, store *Store, run *Runner, users map[string]string) htt
 			jsonErr(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
 			return t, false
 		}
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&t); err != nil {
-			jsonErr(w, http.StatusBadRequest, "bad JSON: "+err.Error())
+		// Unknown fields are refused: a typo such as "interval" for "interval_sec"
+		// would otherwise create the target with a setting nobody asked for.
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&t); err != nil {
+			msg := "bad JSON: " + err.Error()
+			if f, ok := strings.CutPrefix(err.Error(), "json: unknown field "); ok {
+				msg = "unknown field " + f + "; accepted fields: id, name, type, host, port, pace, interval_sec"
+			}
+			jsonErr(w, http.StatusBadRequest, msg)
 			return t, false
 		}
 		if err := normalizeTarget(&t); err != nil {
@@ -295,7 +299,7 @@ func newMux(cfg *Config, store *Store, run *Runner, users map[string]string) htt
 
 	// raw rounds for smoke. Supports either minutes=N (recent window) or from/to unix
 	// (arbitrary range). No thinning: every sample is returned as stored.
-	mux.HandleFunc("/api/series", guard(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/series", guard(func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		name := q.Get("target")
 		from, _ := strconv.ParseInt(q.Get("from"), 10, 64)
@@ -313,7 +317,7 @@ func newMux(cfg *Config, store *Store, run *Runner, users map[string]string) htt
 
 	registerStats(mux, cfg.StatsToken, store, run)
 
-	return securityHeaders(mux)
+	return securityHeaders(apiRules(mux))
 }
 
 // sameOrigin rejects browser requests whose Origin doesn't match the Host they were
@@ -325,15 +329,4 @@ func sameOrigin(r *http.Request) bool {
 	}
 	u, err := url.Parse(o)
 	return err == nil && u.Host == r.Host
-}
-
-func jsonErr(w http.ResponseWriter, code int, msg string) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]string{"error": msg})
-}
-
-func writeJSON(w http.ResponseWriter, v any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	json.NewEncoder(w).Encode(v)
 }
