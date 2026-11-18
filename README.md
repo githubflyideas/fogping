@@ -4,7 +4,7 @@
 > *🚫 No Perl. No RRDtool. No Web Server. No Config Files.*
 
 
-<img width="1280" height="720" alt="image" src="https://github.com/user-attachments/assets/dbc7a184-c25b-4e34-9c58-9ac355d4bd63" />
+<img width="1280" height="720" alt="fogping — a SmokePing-like network latency tool. One binary, embedded SQLite, Web UI." src="docs/images/fogping-hero.gif" />
 
 
 
