@@ -57,7 +57,11 @@ func main() {
 	}
 	statsToken, kvArgs, tokenIgnored, err := resolveZabbixToken(*zabbix, append(authArgs, flag.Args()...), os.Getenv)
 	if err != nil {
-		log.Fatalf("%v\nRun './fogping --help' for examples.", err)
+		// A mistake in an optional integration must never stop the monitoring
+		// itself. The integration stays off, which is the safe state (no stats
+		// endpoint exists), and the log says why.
+		log.Printf("ERROR: %v\nERROR: the Zabbix stats API is OFF; fix the token and restart to turn it on. fogping carries on without it.", err)
+		statsToken = ""
 	}
 	users, cliPasswd, err := resolveAuth(kvArgs, os.Getenv)
 	if err != nil {
@@ -83,9 +87,12 @@ func main() {
 		log.Printf("zabbix: on — read-only GET /api/stats for the Zabbix template")
 	}
 	// An open, writable UI would let anyone who can reach the port make this host
-	// ping or TCP-connect to arbitrary addresses. Refuse rather than warn.
+	// ping or TCP-connect to arbitrary addresses, so editing is refused. Refused,
+	// not fatal: the monitoring starts, read-only, and the log says what to add.
 	if cfg.Editable && len(users) == 0 && !*localOnly {
-		log.Fatalf("--edit needs a login or --localhost, e.g.:  ./fogping --edit user=admin passwd=change-me")
+		log.Printf("ERROR: --edit needs a login or --localhost, so editing is OFF and fogping starts read-only. " +
+			"To edit:  ./fogping --edit user=admin passwd=change-me")
+		cfg.Editable = false
 	}
 
 	if *probes {

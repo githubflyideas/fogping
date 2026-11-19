@@ -31,7 +31,7 @@ const typeHTTP = "http"
 // registration is the order the UI lists the types in, and Go would otherwise run
 // init functions in file-name order.
 func registerHTTP() {
-	registerProber(&prober{
+	registerBuiltin(&prober{
 		name:     typeHTTP,
 		label:    "HTTP",
 		usesPort: true,

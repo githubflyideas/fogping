@@ -168,7 +168,7 @@ func loadProbe(dir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	registerProber(&prober{
+	if err := registerProber(&prober{
 		name:     m.Type,
 		label:    m.Label,
 		usesPort: m.UsesPort,
@@ -184,7 +184,9 @@ func loadProbe(dir string) (string, error) {
 		round: func(ctx context.Context, t TargetCfg, packets int, gap, timeout time.Duration) (Round, error) {
 			return runExternal(ctx, exe, workdir, t, packets, gap, timeout)
 		},
-	})
+	}); err != nil {
+		return "", err // refused: the caller logs it and skips this plugin
+	}
 	return m.Type, nil
 }
 

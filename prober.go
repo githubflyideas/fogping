@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"sort"
 	"strconv"
@@ -53,23 +54,38 @@ var (
 	order   []string // registration order: the order the UI lists types in
 )
 
-// registerProber adds a prober. Names are unique; a duplicate is a programming
-// error, caught at start.
-func registerProber(p *prober) {
+// registerProber adds a prober. Names are unique, and its option declarations must
+// be valid. A prober that breaks either rule is refused with an error and nothing
+// is registered: whoever supplied it (a plugin directory, a mistake in our own
+// source) can never stop fogping from starting.
+func registerProber(p *prober) error {
+	if err := validateSpecs(p.options); err != nil {
+		return fmt.Errorf("prober %s: %w", p.name, err)
+	}
 	regMu.Lock()
 	defer regMu.Unlock()
 	if p.fileName == "" {
 		p.fileName = p.name
 	}
 	if _, dup := probers[p.name]; dup {
-		panic("prober registered twice: " + p.name)
+		return fmt.Errorf("prober %q is already registered", p.name)
 	}
-	checkSpecs(p.name, p.options)
 	if p.label == "" {
 		p.label = strings.ToUpper(p.name)
 	}
 	probers[p.name] = p
 	order = append(order, p.name)
+	return nil
+}
+
+// registerBuiltin registers a prober that is part of fogping's own source. A
+// failure here is a bug of ours (tests make sure it cannot ship), never a user's
+// mistake, and it still must not stop fogping from starting: the type is left out,
+// the reason is logged, and everything else runs.
+func registerBuiltin(p *prober) {
+	if err := registerProber(p); err != nil {
+		log.Printf("ERROR: built-in probe type not available: %v", err)
+	}
 }
 
 // probeTypeInfo is what the UI needs to list and edit a type.
@@ -152,7 +168,7 @@ func targetAddr(t TargetCfg) string {
 }
 
 func init() {
-	registerProber(&prober{
+	registerBuiltin(&prober{
 		name:     typeICMP,
 		label:    "PING",
 		fileName: "ping",
@@ -164,7 +180,7 @@ func init() {
 			return icmpRound(ctx, t.Host, packets, gap, timeout)
 		},
 	})
-	registerProber(&prober{
+	registerBuiltin(&prober{
 		name:     typeTCP,
 		usesPort: true,
 		validate: func(t *TargetCfg) error {

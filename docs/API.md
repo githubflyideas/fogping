@@ -46,7 +46,9 @@ These are enforced by tests (`api_test.go`): code that breaks one does not pass 
    these rules and is kept for compatibility.
 6. **Authentication.** The web UI signs in with `POST /api/login` and then sends
    the `fogping_session` cookie. Machine clients use a bearer token
-   (`Authorization: Bearer …`) where an endpoint says so. A missing or bad
+   (`Authorization: Bearer …`) where an endpoint says so. The `/api/stats` token is read-only by
+   design: it can read statistics and nothing else, and there are no write
+   tokens. Every write needs a signed-in session. A missing or bad
    credential is `401`. Writes also refuse a cross-origin browser request (`403`).
 7. **Documented.** Every endpoint is listed below. A test compares this table with
    the routes the code registers, both ways.

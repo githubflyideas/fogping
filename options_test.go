@@ -106,7 +106,10 @@ func TestOptionsRoundTrip(t *testing.T) {
 	}
 }
 
-func TestBadSpecPanicsAtRegistration(t *testing.T) {
+// A prober with a malformed declaration, or a name already taken, is refused with
+// an error and registers nothing. It must never panic: a plugin cannot stop fogping
+// from starting.
+func TestBadSpecIsRefusedNotAPanic(t *testing.T) {
 	for name, specs := range map[string][]optionSpec{
 		"bad key":   {{Key: "Bad-Key", Label: "x", Kind: optString}},
 		"dup":       {{Key: "a", Label: "x", Kind: optString}, {Key: "a", Label: "y", Kind: optString}},
@@ -114,14 +117,23 @@ func TestBadSpecPanicsAtRegistration(t *testing.T) {
 		"bad dflt":  {{Key: "a", Label: "x", Kind: optInt, Min: 1, Default: 0}},
 		"no choice": {{Key: "a", Label: "x", Kind: optChoice}},
 	} {
-		func() {
-			defer func() {
-				if recover() == nil {
-					t.Errorf("%s: no panic", name)
-				}
-			}()
-			checkSpecs("x", specs)
-		}()
+		before := len(probeTypes())
+		err := registerProber(&prober{name: "badspec", options: specs, validate: func(*TargetCfg) error { return nil }})
+		if err == nil {
+			unregisterProber("badspec")
+			t.Errorf("%s: accepted", name)
+			continue
+		}
+		if _, ok := proberFor("badspec"); ok || len(probeTypes()) != before {
+			t.Errorf("%s: refused but still registered", name)
+		}
+	}
+	// A duplicate name is refused too, and the first registration is untouched.
+	if err := registerProber(&prober{name: typeICMP, validate: func(*TargetCfg) error { return nil }}); err == nil {
+		t.Error("a second prober named icmp was accepted")
+	}
+	if p, _ := proberFor(typeICMP); p.fileName != "ping" {
+		t.Error("the built-in icmp prober was replaced")
 	}
 }
 

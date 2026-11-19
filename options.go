@@ -136,15 +136,6 @@ func validateSpecs(specs []optionSpec) error {
 	return nil
 }
 
-// checkSpecs panics on a malformed declaration made in Go: that is a bug in the
-// prober, and it must show up when fogping starts, not when someone opens the
-// editor.
-func checkSpecs(prober string, specs []optionSpec) {
-	if err := validateSpecs(specs); err != nil {
-		panic(fmt.Sprintf("prober %s: %v", prober, err))
-	}
-}
-
 // coerceOption checks one value against its spec and returns it in canonical
 // form: string, int, or bool. JSON numbers arrive as float64.
 func coerceOption(s optionSpec, v any) (any, error) {

@@ -49,7 +49,9 @@ func TestBuiltInProbers(t *testing.T) {
 // fakeProber registers a prober for one test and removes it afterwards.
 func fakeProber(t *testing.T, p *prober) {
 	t.Helper()
-	registerProber(p)
+	if err := registerProber(p); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() { unregisterProber(p.name) })
 }
 
