@@ -15,7 +15,7 @@ import (
 var version = "dev"
 
 // demoTarget is seeded into a brand-new database so the very first launch shows smoke.
-var demoTarget = TargetCfg{Name: "Demo", Type: "icmp", Host: "www.google.com", Pace: "fast"}
+var demoTarget = TargetCfg{Name: "Demo", Type: typeICMP, Host: "www.google.com", Pace: "fast"}
 
 func main() {
 	localOnly := flag.Bool("localhost", false, "bind 127.0.0.1 only; put Caddy/Nginx in front for auth/TLS")

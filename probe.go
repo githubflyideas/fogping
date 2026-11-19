@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
@@ -40,20 +41,30 @@ func probeParams(t TargetCfg, p ProbeCfg) (interval time.Duration, packets int) 
 }
 
 func probeLoop(t TargetCfg, p ProbeCfg, store *Store, det *Detector, stop chan struct{}) {
+	pr, ok := proberFor(t.Type)
+	if !ok {
+		// Validation keeps unknown types out of the database; reaching this means
+		// a prober went away (an external module removed). Write nothing rather
+		// than rounds that look like measurements.
+		log.Printf("[%s] no prober for type %q; not probing", t.Name, t.Type)
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		select {
+		case <-stop:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
 	interval, packets := probeParams(t, p)
 	gap := time.Duration(p.GapMs) * time.Millisecond
 	timeout := time.Duration(p.TimeoutMs) * time.Millisecond
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
-		var r Round
-		var err error
-		switch t.Type {
-		case "icmp":
-			r, err = icmpRound(t.Host, packets, gap, timeout)
-		case "tcp":
-			r, err = tcpRound(t.Host, t.Port, packets, gap, timeout)
-		}
+		r, err := pr.round(ctx, t, packets, gap, timeout)
 		if err != nil {
 			log.Printf("[%s] probe error: %v", t.Name, err)
 			r = Round{T: time.Now().Unix(), S: packets, R: 0} // 解析失败按全丢记录,不留时间空洞

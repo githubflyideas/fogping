@@ -2,8 +2,6 @@ package main
 
 import (
 	"fmt"
-	"net"
-	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -53,7 +51,7 @@ func retentionDays(n int) (int, error) {
 type TargetCfg struct {
 	ID          int64  `json:"id"`
 	Name        string `json:"name"`
-	Type        string `json:"type"` // "icmp" (default) | "tcp"
+	Type        string `json:"type"` // a registered prober (prober.go); "icmp" when empty
 	Host        string `json:"host"`
 	Port        int    `json:"port"`         // tcp only
 	Pace        string `json:"pace"`         // "fast"(15s) | ""/"normal"(60s) | "slow"(300s)
@@ -75,17 +73,14 @@ func normalizeTarget(t *TargetCfg) error {
 	t.Name = strings.TrimSpace(t.Name)
 	t.Pace = strings.TrimSpace(t.Pace)
 	if t.Type == "" {
-		t.Type = "icmp"
+		t.Type = typeICMP
 	}
-	switch t.Type {
-	case "icmp":
-		t.Port = 0
-	case "tcp":
-		if t.Port < 1 || t.Port > 65535 {
-			return fmt.Errorf("tcp target needs a port 1-65535")
-		}
-	default:
-		return fmt.Errorf("unknown type %q (icmp|tcp)", t.Type)
+	p, ok := proberFor(t.Type)
+	if !ok {
+		return fmt.Errorf("unknown type %q (%s)", t.Type, proberNames(false))
+	}
+	if err := p.validate(t); err != nil {
+		return err
 	}
 	if t.Host == "" || len(t.Host) > 253 || strings.ContainsFunc(t.Host, unicode.IsSpace) {
 		return fmt.Errorf("invalid host %q", t.Host)
@@ -107,11 +102,4 @@ func normalizeTarget(t *TargetCfg) error {
 		return fmt.Errorf("name must be at most 64 printable characters")
 	}
 	return nil
-}
-
-func targetAddr(t TargetCfg) string {
-	if t.Type == "tcp" {
-		return net.JoinHostPort(t.Host, strconv.Itoa(t.Port))
-	}
-	return t.Host
 }

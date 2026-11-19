@@ -36,7 +36,7 @@ const (
 // accounts or settings.
 type fileTarget struct {
 	Name     string `json:"name,omitempty"`
-	Type     string `json:"type"` // "ping" | "tcp" ("icmp" accepted on import)
+	Type     string `json:"type"` // a prober's file name: "ping" | "tcp" (its own name is accepted on import)
 	Host     string `json:"host"`
 	Port     int    `json:"port,omitempty"` // tcp only
 	Pace     string `json:"pace,omitempty"` // fast | normal | slow
@@ -52,9 +52,12 @@ type targetsFile struct {
 }
 
 func toFileTarget(t TargetCfg) fileTarget {
-	f := fileTarget{Name: t.Name, Type: "ping", Host: t.Host, Pace: t.Pace, Interval: t.IntervalSec}
-	if t.Type == "tcp" {
-		f.Type, f.Port = "tcp", t.Port
+	f := fileTarget{Name: t.Name, Type: t.Type, Host: t.Host, Pace: t.Pace, Interval: t.IntervalSec}
+	if p, ok := proberFor(t.Type); ok {
+		f.Type = p.fileName
+		if p.usesPort {
+			f.Port = t.Port
+		}
 	}
 	if f.Pace == "" {
 		f.Pace = "normal"
@@ -95,16 +98,14 @@ func fromFileRow(raw json.RawMessage) (TargetCfg, string, error) {
 		}
 		return t, name, err
 	}
-	switch strings.ToLower(strings.TrimSpace(f.Type)) {
-	case "ping", "icmp":
-		t.Type = "icmp"
-	case "tcp":
-		t.Type = "tcp"
-	case "":
-		return t, name, errors.New("type is required (ping|tcp)")
-	default:
-		return t, name, fmt.Errorf("unknown type %q (ping|tcp)", f.Type)
+	if strings.TrimSpace(f.Type) == "" {
+		return t, name, fmt.Errorf("type is required (%s)", proberNames(true))
 	}
+	p, ok := proberForFile(f.Type)
+	if !ok {
+		return t, name, fmt.Errorf("unknown type %q (%s)", f.Type, proberNames(true))
+	}
+	t.Type = p.name
 	t.Name, t.Host, t.Port, t.Pace, t.IntervalSec = f.Name, f.Host, f.Port, f.Pace, f.Interval
 	if err := normalizeTarget(&t); err != nil {
 		return t, name, err
