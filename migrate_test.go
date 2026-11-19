@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -121,5 +122,59 @@ func TestProbeErrorIsNotLoss(t *testing.T) {
 	rows := s.queryRaw(context.Background(), "x", now-60, now)
 	if len(rows) != 2 || rows[1].E != "no ICMP socket" {
 		t.Fatalf("stored rows %+v", rows)
+	}
+}
+
+// Upgrading an existing database first saves a copy that an older fogping can still
+// open; a fresh database and a current one are not copied.
+func TestUpgradeBacksUpFirst(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sql.Open("sqlite3", filepath.Join(dir, "fogping.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A real version-1 database: built by the version-1 migration itself.
+	tx, _ := db.Begin()
+	if err := migrateV1(tx); err != nil {
+		t.Fatal(err)
+	}
+	tx.Exec(`INSERT INTO targets(name) VALUES('kept')`)
+	tx.Exec(`PRAGMA user_version = 1`)
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	s, err := NewStore(dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	bak := filepath.Join(dir, "fogping.db.bak-v1")
+	old, err := sql.Open("sqlite3", bak)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer old.Close()
+	var v int
+	var name string
+	old.QueryRow(`PRAGMA user_version`).Scan(&v)
+	old.QueryRow(`SELECT name FROM targets`).Scan(&name)
+	if v != 1 || name != "kept" {
+		t.Fatalf("backup holds version %d, row %q", v, name)
+	}
+
+	// Opening the now-current database again makes no new copy.
+	os.Remove(bak)
+	s, _ = NewStore(dir, nil)
+	s.Close()
+	if _, err := os.Stat(bak); err == nil {
+		t.Fatal("a current database was backed up again")
+	}
+	fresh := t.TempDir()
+	s, _ = NewStore(fresh, nil)
+	s.Close()
+	if m, _ := filepath.Glob(filepath.Join(fresh, "*.bak-*")); len(m) != 0 {
+		t.Fatalf("a fresh database was backed up: %v", m)
 	}
 }

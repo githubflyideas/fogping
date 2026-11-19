@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -237,7 +238,15 @@ func runExternal(ctx context.Context, exe, workdir string, t TargetCfg, packets 
 	cctx, cancel := context.WithTimeout(ctx, deadline)
 	defer cancel()
 
-	cmd := exec.CommandContext(cctx, exe)
+	// The prober is started through fogping itself (probeExec, below), which sets
+	// resource limits on its own process and then becomes the prober: the limits
+	// apply to that one process and whatever it starts, never to fogping.
+	self, err := os.Executable()
+	if err != nil {
+		return zero, err
+	}
+	cpu := int(deadline/time.Second) + 1
+	cmd := exec.CommandContext(cctx, self, probeExecArg, strconv.Itoa(cpu), exe)
 	cmd.Dir = workdir
 	cmd.Env = []string{"PATH=/usr/local/bin:/usr/bin:/bin"}
 	cmd.Stdin = bytes.NewReader(req)
@@ -298,3 +307,50 @@ func (c *capped) Write(p []byte) (int, error) {
 }
 
 var _ io.Writer = (*capped)(nil)
+
+// probeExecArg is the hidden first argument that makes fogping act as the launcher
+// for one prober run. main checks for it before anything else.
+const probeExecArg = "__fogping-probe-exec"
+
+// Limits for one prober process. Generous for any honest prober, fatal to a runaway.
+const (
+	probeMemBytes  = 1 << 30  // address space: 1 GiB
+	probeFileBytes = 16 << 20 // largest file it may write: 16 MiB
+	probeOpenFiles = 256      // open files and sockets
+)
+
+// probeExec runs in the launcher process: args are the CPU seconds allowed and the
+// prober's path. It sets the limits on itself, then replaces itself with the prober
+// (same process, same pid, so fogping's deadline and process-group kill still hold).
+// It never returns. A limit that cannot be set stops the run: the round is then
+// recorded as one that could not be measured.
+func probeExec(args []string) {
+	fail := func(msg string) {
+		fmt.Fprintln(os.Stderr, "fogping probe launcher: "+msg)
+		os.Exit(126)
+	}
+	if len(args) != 2 {
+		fail("usage: " + probeExecArg + " CPU-SECONDS PROBER")
+	}
+	cpu, err := strconv.ParseUint(args[0], 10, 64)
+	if err != nil || cpu == 0 {
+		fail("bad CPU seconds")
+	}
+	for _, l := range []struct {
+		res int
+		max uint64
+	}{
+		{syscall.RLIMIT_CPU, cpu},
+		{syscall.RLIMIT_AS, probeMemBytes},
+		{syscall.RLIMIT_FSIZE, probeFileBytes},
+		{syscall.RLIMIT_NOFILE, probeOpenFiles},
+		{syscall.RLIMIT_CORE, 0}, // no core dumps full of the prober's memory
+	} {
+		if err := syscall.Setrlimit(l.res, &syscall.Rlimit{Cur: l.max, Max: l.max}); err != nil {
+			fail(fmt.Sprintf("cannot set resource limit %d: %v", l.res, err))
+		}
+	}
+	// The environment is already the prober's (fogping set it to PATH only).
+	err = syscall.Exec(args[1], []string{args[1]}, os.Environ())
+	fail("cannot start the prober: " + err.Error())
+}

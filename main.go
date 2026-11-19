@@ -18,6 +18,12 @@ var version = "dev"
 var demoTarget = TargetCfg{Name: "Demo", Type: typeICMP, Host: "www.google.com", Pace: "fast"}
 
 func main() {
+	// Before anything else: fogping started as the launcher for one prober run
+	// (external.go). Nothing of the normal start-up may run in that process.
+	if len(os.Args) > 1 && os.Args[1] == probeExecArg {
+		probeExec(os.Args[2:])
+		return
+	}
 	localOnly := flag.Bool("localhost", false, "bind 127.0.0.1 only; put Caddy/Nginx in front for auth/TLS")
 	days := flag.Int("days", defaultDays, fmt.Sprintf("days of history to keep (max %d); UI hides windows beyond this", maxDays))
 	edit := flag.Bool("edit", false, "allow adding/editing/deleting targets from the web UI (default: read-only)")

@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 )
 
 // Schema versions. The database records the last migration applied in
@@ -145,4 +147,36 @@ func migrateV2(tx *sql.Tx) error {
 func migrateV3(tx *sql.Tx) error {
 	_, err := tx.Exec(`ALTER TABLE targets ADD COLUMN options TEXT NOT NULL DEFAULT ''`)
 	return err
+}
+
+// backupBeforeUpgrade copies the database before a schema upgrade. An upgraded
+// database cannot be opened by an older fogping, so without a copy there is no way
+// back. VACUUM INTO writes a consistent, compact copy even while WAL holds recent
+// writes. The copy is named after the version it holds: fogping.db.bak-v2.
+//
+// A fresh database (version 0, nothing in it yet) and one that is already current
+// need no copy. If the copy cannot be made the upgrade does not happen: the data
+// matters more than starting this time, and the message says what to do.
+func backupBeforeUpgrade(db *sql.DB, dir string) error {
+	var v int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
+		return err
+	}
+	if v == 0 || v >= schemaVersion() {
+		return nil
+	}
+	path := filepath.Join(dir, fmt.Sprintf("fogping.db.bak-v%d", v))
+	if _, err := os.Stat(path); err == nil {
+		// A copy of this version already exists (an earlier upgrade attempt that
+		// did not finish). Keep it: it is the older, untouched one.
+		log.Printf("storage: backup %s already exists; keeping it", path)
+		return nil
+	}
+	if _, err := db.Exec(`VACUUM INTO ?`, path); err != nil {
+		os.Remove(path)
+		return fmt.Errorf("could not back up the database before upgrading it from schema %d to %d: %v\n"+
+			"  nothing was changed; free some disk space in %s and start again", v, schemaVersion(), err, dir)
+	}
+	log.Printf("storage: backed up the database before upgrading it (schema %d to %d): %s", v, schemaVersion(), path)
+	return nil
 }

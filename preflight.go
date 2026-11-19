@@ -101,11 +101,24 @@ func securitySummary(s setup, probesLoaded []string) []string {
 	} else {
 		line(true, "listen", s.cfg.Listen+" (every interface: reachable from the network)")
 	}
+	if !s.localOnly {
+		line(true, "transport", "plain HTTP: logins and pages cross the network unencrypted; put an HTTPS reverse proxy in front")
+	}
 	switch {
-	case len(s.users) > 0 && s.cliPasswd:
-		line(true, "login", fmt.Sprintf("on, %d user(s); the password is on the command line, visible in ps", len(s.users)))
 	case len(s.users) > 0:
-		line(false, "login", fmt.Sprintf("on, %d user(s)", len(s.users)))
+		// Every issue with the login is named, not just the first.
+		var issues []string
+		if weak := weakPasswords(s.users); weak > 0 {
+			issues = append(issues, fmt.Sprintf("%d password(s) shorter than %d characters", weak, minPasswordLen))
+		}
+		if s.cliPasswd {
+			issues = append(issues, "the password is on the command line, visible in ps")
+		}
+		text := fmt.Sprintf("on, %d user(s)", len(s.users))
+		if len(issues) > 0 {
+			text += "; " + strings.Join(issues, "; ")
+		}
+		line(len(issues) > 0, "login", text)
 	case s.localOnly:
 		line(false, "login", "off (only this machine can connect; put a reverse proxy with login in front)")
 	default:
@@ -120,6 +133,9 @@ func securitySummary(s setup, probesLoaded []string) []string {
 		line(false, "zabbix", "on: GET /api/stats with a read-only token")
 	} else {
 		line(false, "zabbix", "off")
+	}
+	if runningAsRoot() {
+		line(true, "account", "running as root: a flaw anywhere is a flaw with full control of this machine; use an ordinary account")
 	}
 	switch {
 	case !s.probes:
@@ -210,7 +226,7 @@ func checkMachine(s setup) []machineCheck {
 	} else {
 		detail := fmt.Sprintf("schema version %d", v)
 		if v < schemaVersion() {
-			detail += fmt.Sprintf(", will be upgraded to %d at start (back up %s first)", schemaVersion(), s.cfg.DataDir)
+			detail += fmt.Sprintf(", will be upgraded to %d at start; a copy is saved first as fogping.db.bak-v%d", schemaVersion(), v)
 		}
 		out = append(out, machineCheck{name: "database", detail: detail})
 	}
@@ -341,3 +357,21 @@ func genToken(w io.Writer, path string) error {
 	fmt.Fprintf(w, "and give the same token to the Zabbix template ({$FOGPING.TOKEN}).\n")
 	return nil
 }
+
+// minPasswordLen is the shortest password not flagged as weak: pingping's rule.
+const minPasswordLen = 8
+
+// weakPasswords counts the passwords shorter than minPasswordLen. A short one is
+// warned about, not refused: refusing would stop a running setup at its next start.
+func weakPasswords(users map[string]string) int {
+	n := 0
+	for _, pw := range users {
+		if len([]rune(pw)) < minPasswordLen {
+			n++
+		}
+	}
+	return n
+}
+
+// runningAsRoot is a variable so tests can pretend.
+var runningAsRoot = func() bool { return os.Geteuid() == 0 }

@@ -204,8 +204,9 @@ others.
 
 **Trust.** A prober is a program that runs with the same privileges as fogping, on
 every round. fogping limits what it can cost (the deadline, the output cap, at most
-8 at once, an empty environment) but it does not sandbox it: a prober can read the
-files and reach the network that the fogping account can. Install only probers you
+8 at once, an empty environment, the resource limits below) but it does not
+sandbox it: a prober can read the files and reach the network that the fogping
+account can. Install only probers you
 trust, and run fogping as an ordinary account, never as root. To keep a stranger
 from planting one, fogping refuses a `probes/` directory, a prober directory or a
 `probe` file that group or others can write to, or that another account owns.
@@ -228,6 +229,10 @@ from planting one, fogping refuses a `probes/` directory, a prober directory or 
 - Working directory: one empty directory, shared by all probers, removed when
   fogping exits.
 - Concurrency: at most 8 prober processes run at once, across all targets.
+- Resource limits, set on the prober's own process (and inherited by anything it
+  starts): CPU time no more than the deadline, 1 GiB of address space, files no
+  larger than 16 MiB, 256 open files and sockets, no core dumps. A prober that hits
+  one is stopped, and the round is one that could not be measured.
 - A failed round (killed, crashed, bad answer) is recorded as a round that could
   not be measured: not loss, left out of every statistic.
 

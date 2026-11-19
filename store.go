@@ -74,6 +74,9 @@ func NewStore(dir string, targets []TargetCfg) (*Store, error) {
 	}
 	db.SetMaxOpenConns(4)
 
+	if err := backupBeforeUpgrade(db, dir); err != nil {
+		return nil, err
+	}
 	if err := migrate(db); err != nil {
 		return nil, err
 	}

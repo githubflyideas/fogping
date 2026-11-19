@@ -43,6 +43,8 @@ func TestSecuritySummaryMarksWhatIsExposed(t *testing.T) {
 			t.Errorf("open instance: missing %q in\n%s", want, text)
 		}
 	}
+	runningAsRoot = func() bool { return false }
+	defer func() { runningAsRoot = func() bool { return os.Geteuid() == 0 } }()
 	local, _ := prepare(startFlags{days: 30, localOnly: true}, nil, noEnv)
 	if text := strings.Join(securitySummary(local, nil), "\n"); strings.Contains(text, "!") {
 		t.Errorf("localhost-only instance flagged:\n%s", text)
@@ -166,5 +168,23 @@ func TestGenTokenIsStrongPrivateAndNeverPrinted(t *testing.T) {
 	}
 	if b2, _ := os.ReadFile(path); string(b2) != string(b) {
 		t.Fatal("the existing token changed")
+	}
+}
+
+func TestSecuritySummaryFlagsRootPlainHTTPAndWeakPasswords(t *testing.T) {
+	old := runningAsRoot
+	runningAsRoot = func() bool { return true }
+	defer func() { runningAsRoot = old }()
+	s, _ := prepare(startFlags{days: 30}, []string{"user=a,b", "passwd=short,long-enough-pw"}, noEnv)
+	text := strings.Join(securitySummary(s, nil), "\n")
+	for _, want := range []string{"! account", "! transport", "1 password(s) shorter than 8"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("missing %q in\n%s", want, text)
+		}
+	}
+	runningAsRoot = func() bool { return false }
+	local, _ := prepare(startFlags{days: 30, localOnly: true}, nil, noEnv)
+	if text := strings.Join(securitySummary(local, nil), "\n"); strings.Contains(text, "!") {
+		t.Errorf("a local, ordinary-account instance is flagged:\n%s", text)
 	}
 }
