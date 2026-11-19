@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"net"
 	"os"
 	"regexp"
 	"strings"
@@ -149,5 +150,32 @@ func TestMissingProberWritesNothing(t *testing.T) {
 	}
 	if n := len(s.Recent("orphan", 0)); n != 0 {
 		t.Errorf("stored %d rounds for a target with no prober", n)
+	}
+}
+
+// A stop during the pause between packets ends the round at once, and a round
+// cut short is never stored.
+func TestTCPRoundStopsDuringGap(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			c.Close()
+		}
+	}()
+	ctx, cancel := context.WithCancel(context.Background())
+	port := ln.Addr().(*net.TCPAddr).Port
+	go func() { time.Sleep(100 * time.Millisecond); cancel() }()
+	t0 := time.Now()
+	_, err = tcpRound(ctx, "127.0.0.1", port, 5, time.Minute, time.Second)
+	if err == nil || time.Since(t0) > 5*time.Second {
+		t.Fatalf("round not cut short: err=%v after %v", err, time.Since(t0))
 	}
 }

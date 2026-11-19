@@ -79,6 +79,9 @@ func probeLoop(t TargetCfg, p ProbeCfg, store *Store, det *Detector, stop chan s
 	defer ticker.Stop()
 	for {
 		r, err := pr.round(ctx, t, packets, gap, timeout)
+		if ctx.Err() != nil {
+			return // stopped mid-round: a partial round must not be stored as a result
+		}
 		if err != nil {
 			log.Printf("[%s] probe error: %v", t.Name, err)
 			r = Round{T: time.Now().Unix(), E: errText(err)} // keeps the time axis gapless without claiming loss
@@ -102,9 +105,9 @@ func probeLoop(t TargetCfg, p ProbeCfg, store *Store, det *Detector, stop chan s
 
 const icmpMagic = "fogpingv1!"
 
-func icmpRound(host string, packets int, gap, timeout time.Duration) (Round, error) {
+func icmpRound(ctx context.Context, host string, packets int, gap, timeout time.Duration) (Round, error) {
 	r := Round{T: time.Now().Unix(), S: packets}
-	ip, err := resolveIPv4(host)
+	ip, err := resolveIPv4(ctx, host)
 	if err != nil {
 		return r, err
 	}
@@ -124,16 +127,20 @@ func icmpRound(host string, packets int, gap, timeout time.Duration) (Round, err
 	got := make([]bool, packets)
 
 	for i := 0; i < packets; i++ {
+		if ctx.Err() != nil {
+			return r, ctx.Err()
+		}
 		pkt := buildEcho(id, i, nonce)
 		sendAt[i] = time.Now()
 		if err := syscall.Sendto(fd, pkt, 0, dst); err != nil {
 			continue // 单包发送失败不终止整轮
 		}
-		collect(fd, raw, id, nonce, sendAt, got, &r, time.Now().Add(gap))
+		collect(ctx, fd, raw, id, nonce, sendAt, got, &r, time.Now().Add(gap))
 	}
 	// 尾窗:等最后一批在途包
-	collect(fd, raw, id, nonce, sendAt, got, &r, time.Now().Add(timeout))
-	return r, nil
+	collect(ctx, fd, raw, id, nonce, sendAt, got, &r, time.Now().Add(timeout))
+	return r, ctx.Err() // a round cut short by stop is not a measurement
+
 }
 
 func icmpSocket() (fd int, raw bool, err error) {
@@ -159,11 +166,11 @@ func buildEcho(id, seq int, nonce [4]byte) []byte {
 
 // collect 在 deadline 前持续收包,匹配到未回收的 seq 就记 RTT。
 // 乱序、迟到的回包都能被后续窗口捞回,RTT 按各自 sendAt 计算,不失真。
-func collect(fd int, raw bool, id int, nonce [4]byte, sendAt []time.Time, got []bool, r *Round, deadline time.Time) {
+func collect(ctx context.Context, fd int, raw bool, id int, nonce [4]byte, sendAt []time.Time, got []bool, r *Round, deadline time.Time) {
 	buf := make([]byte, 1500)
 	for {
 		remain := time.Until(deadline)
-		if remain <= 0 {
+		if remain <= 0 || ctx.Err() != nil {
 			return
 		}
 		wait := remain
@@ -226,14 +233,14 @@ func icmpChecksum(b []byte) uint16 {
 	return ^uint16(sum)
 }
 
-func resolveIPv4(host string) ([4]byte, error) {
+func resolveIPv4(ctx context.Context, host string) ([4]byte, error) {
 	var out [4]byte
-	ips, err := net.LookupIP(host)
+	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
 	if err != nil {
 		return out, err
 	}
-	for _, ip := range ips {
-		if v4 := ip.To4(); v4 != nil {
+	for _, a := range ips {
+		if v4 := a.IP.To4(); v4 != nil {
 			copy(out[:], v4)
 			return out, nil
 		}
@@ -245,26 +252,34 @@ func resolveIPv4(host string) ([4]byte, error) {
 // Resolve once per round and dial the IP: Go doesn't cache DNS, so dialing a
 // hostname would add a lookup to every sample and measure the resolver, not the link.
 
-func tcpRound(host string, port, packets int, gap, timeout time.Duration) (Round, error) {
+func tcpRound(ctx context.Context, host string, port, packets int, gap, timeout time.Duration) (Round, error) {
 	r := Round{T: time.Now().Unix(), S: packets}
-	ips, err := net.LookupIP(host)
+	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
 	if err != nil {
 		return r, err
 	}
 	if len(ips) == 0 {
 		return r, fmt.Errorf("%s: no address", host)
 	}
-	addr := net.JoinHostPort(ips[0].String(), strconv.Itoa(port))
+	addr := net.JoinHostPort(ips[0].IP.String(), strconv.Itoa(port))
+	d := net.Dialer{Timeout: timeout}
 	for i := 0; i < packets; i++ {
+		if ctx.Err() != nil {
+			return r, ctx.Err()
+		}
 		t0 := time.Now()
-		c, err := net.DialTimeout("tcp", addr, timeout)
+		c, err := d.DialContext(ctx, "tcp", addr)
 		if err == nil {
 			r.R++
 			r.MS = append(r.MS, float64(time.Since(t0).Microseconds())/1000.0)
 			c.Close()
 		}
 		if i < packets-1 {
-			time.Sleep(gap)
+			select {
+			case <-time.After(gap):
+			case <-ctx.Done():
+				return r, ctx.Err()
+			}
 		}
 	}
 	return r, nil

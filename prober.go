@@ -100,8 +100,8 @@ func init() {
 			t.Port = 0
 			return nil
 		},
-		round: func(_ context.Context, t TargetCfg, packets int, gap, timeout time.Duration) (Round, error) {
-			return icmpRound(t.Host, packets, gap, timeout)
+		round: func(ctx context.Context, t TargetCfg, packets int, gap, timeout time.Duration) (Round, error) {
+			return icmpRound(ctx, t.Host, packets, gap, timeout)
 		},
 	})
 	registerProber(&prober{
@@ -113,8 +113,8 @@ func init() {
 			}
 			return nil
 		},
-		round: func(_ context.Context, t TargetCfg, packets int, gap, timeout time.Duration) (Round, error) {
-			return tcpRound(t.Host, t.Port, packets, gap, timeout)
+		round: func(ctx context.Context, t TargetCfg, packets int, gap, timeout time.Duration) (Round, error) {
+			return tcpRound(ctx, t.Host, t.Port, packets, gap, timeout)
 		},
 	})
 }
