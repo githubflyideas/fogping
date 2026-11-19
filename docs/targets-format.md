@@ -58,8 +58,8 @@ later version can add optional fields without breaking older readers.
 | `follow_redirects` | `false` (default) or `true` (at most 5) |
 
 Unknown option names are refused for that row, so a typo is an error and not a
-silently ignored setting. `ping` and `tcp` take no options. fogping also lists the
-options of probers loaded with `--probes`; see [OPTIONS.md](OPTIONS.md).
+silently ignored setting. `ping` and `tcp` take no options. (fogping can also load
+external probers with options of their own; those travel in the same field.)
 
 Every row goes through exactly the validation the web editor uses, so an import
 cannot create a target the editor could not.
