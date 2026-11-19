@@ -43,9 +43,13 @@ press Ctrl-C and restart **without** `--edit` — the UI becomes read-only and s
 | Keep 30 days of history (default and max 93) | `./fogping --days=30 user=admin passwd=change-me` |
 | Listen on 127.0.0.1 only (behind a proxy) | `./fogping --localhost` |
 | Run in the background | `nohup ./fogping user=admin passwd=change-me >> fogping.log 2>&1 &` |
+| Check a setup before (re)starting: flags, login, data, port, plugins | `./fogping --check user=admin passwd=change-me` |
+| Make a Zabbix token (file mode 600, never printed) | `./fogping --gen-token=zabbix.token` |
 | Show all commands | `./fogping --help` |
 
-Arguments can come in any order; the port is always 8518.
+Arguments can come in any order; the port is always 8518. Every start logs a short
+security summary (where it listens, login, editing, Zabbix, plugins); anything exposed
+is marked `!`.
 
 **Compare:** the **COMPARE** menu under the chart overlays the previous period, yesterday or last week as a dashed median line.
 
