@@ -248,8 +248,8 @@ func (s *Store) Flush() error {
 	if err != nil {
 		return err
 	}
-	stmt, err := tx.Prepare(`INSERT OR REPLACE INTO rounds(target_id,t,sent,recv,samples,burst,z)
-	                          VALUES(?,?,?,?,?,?,?)`)
+	stmt, err := tx.Prepare(`INSERT OR REPLACE INTO rounds(target_id,t,sent,recv,samples,burst,z,err)
+	                          VALUES(?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		tx.Rollback()
 		return err
@@ -259,7 +259,7 @@ func (s *Store) Flush() error {
 		if p.r.B {
 			b = 1
 		}
-		if _, err := stmt.Exec(p.id, p.r.T, p.r.S, p.r.R, packSamples(p.r.MS), b, p.r.Z); err != nil {
+		if _, err := stmt.Exec(p.id, p.r.T, p.r.S, p.r.R, packSamples(p.r.MS), b, p.r.Z, p.r.E); err != nil {
 			stmt.Close()
 			tx.Rollback()
 			return err
@@ -332,7 +332,7 @@ func (s *Store) queryRaw(ctx context.Context, name string, from, to int64) []Rou
 		return []Round{}
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT t,sent,recv,samples,burst,z FROM rounds
+		`SELECT t,sent,recv,samples,burst,z,err FROM rounds
 		  WHERE target_id=? AND t BETWEEN ? AND ? ORDER BY t`, id, from, to)
 	if err != nil {
 		log.Printf("query raw: %v", err)
@@ -344,7 +344,7 @@ func (s *Store) queryRaw(ctx context.Context, name string, from, to int64) []Rou
 		var r Round
 		var blob []byte
 		var b int
-		if err := rows.Scan(&r.T, &r.S, &r.R, &blob, &b, &r.Z); err != nil {
+		if err := rows.Scan(&r.T, &r.S, &r.R, &blob, &b, &r.Z, &r.E); err != nil {
 			log.Printf("scan raw: %v", err)
 			break
 		}
@@ -449,6 +449,9 @@ func (s *Store) Rollup(since, horizon int64) error {
 		if b := t / bucketSec * bucketSec; !open || id != cur.id || b != cur.t {
 			closeBucket()
 			cur, vals, open = agg{id: id, t: b}, vals[:0], true
+		}
+		if sent == 0 { // a probe error, not a measurement
+			continue
 		}
 		cur.sent += sent
 		cur.recv += recv
@@ -565,13 +568,21 @@ type Stats struct {
 	P99     float64 `json:"p99"`
 	LossPct float64 `json:"loss_pct"`
 	Bursts  int     `json:"bursts"`
+	// ProbeErrors counts rounds that could not be measured at all; they are not in
+	// Rounds or any other number here.
+	ProbeErrors int `json:"probe_errors"`
 }
 
 func calcStats(rounds []Round) Stats {
-	st := Stats{Rounds: len(rounds)}
+	st := Stats{}
 	var pool []float64
 	sent, recv := 0, 0
 	for _, r := range rounds {
+		if r.S == 0 { // could not probe: counted apart, never as loss
+			st.ProbeErrors++
+			continue
+		}
+		st.Rounds++
 		sent += r.S
 		recv += r.R
 		pool = append(pool, r.MS...)

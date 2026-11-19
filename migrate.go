@@ -18,6 +18,7 @@ import (
 // running an old fogping on it could quietly drop what the newer one stores.
 var migrations = []func(tx *sql.Tx) error{
 	migrateV1,
+	migrateV2,
 }
 
 func schemaVersion() int { return len(migrations) }
@@ -129,4 +130,11 @@ func migrate(db *sql.DB) error {
 		}
 	}
 	return nil
+}
+
+// migrateV2 lets a round say why it could not be measured, so a failed probe is
+// no longer stored as total loss.
+func migrateV2(tx *sql.Tx) error {
+	_, err := tx.Exec(`ALTER TABLE rounds ADD COLUMN err TEXT NOT NULL DEFAULT ''`)
+	return err
 }

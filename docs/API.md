@@ -83,3 +83,7 @@ milliseconds, `b` true when the round was flagged as a loss burst, `z` the robus
 z-score behind that flag. Longer windows are `hourly`: one bucket per hour —
 `q` min/p50/p90/p99/max in ms (absent when every packet was lost), `loss`
 percent of packets lost, `n` rounds in the bucket, `bursts` flagged rounds.
+
+A round that could not be measured at all (DNS failed, no ICMP socket) has `s: 0`
+and `e` set to the reason. It is not loss: it is left out of every statistic, and
+`/api/targets` and `/api/stats` count such rounds apart as `probe_errors`.

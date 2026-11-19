@@ -18,11 +18,19 @@ const burstZ = 3.5 // Iglewicz-Hoaglin conventional cutoff
 
 // CheckBurst returns the verdict and the z value (hover-tooltip evidence).
 func (d *Detector) CheckBurst(name string, r Round) (bool, float64) {
+	if r.S == 0 {
+		return false, 0
+	}
 	loss := r.S - r.R
 	if loss < 2 { // a single lost packet on the internet is noise
 		return false, 0
 	}
-	hist := d.store.Recent(name, time.Now().Add(-4*time.Hour).Unix())
+	var hist []Round
+	for _, h := range d.store.Recent(name, time.Now().Add(-4*time.Hour).Unix()) {
+		if h.S > 0 {
+			hist = append(hist, h)
+		}
+	}
 	if len(hist) < 30 {
 		return float64(loss)/float64(r.S) >= 0.25, 0 // cold start: absolute floor
 	}

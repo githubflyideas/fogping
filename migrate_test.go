@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func userVersion(t *testing.T, db *sql.DB) int {
@@ -91,5 +93,33 @@ func TestMigrateRefusesNewer(t *testing.T) {
 	_, err = NewStore(dir, nil)
 	if err == nil || !strings.Contains(err.Error(), "newer fogping") {
 		t.Fatalf("want refusal, got %v", err)
+	}
+}
+
+func TestProbeErrorIsNotLoss(t *testing.T) {
+	s, err := NewStore(t.TempDir(), []TargetCfg{{Name: "x", Type: typeICMP, Host: "h"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	now := time.Now().Unix()
+	good := Round{T: now - 20, S: 10, R: 10, MS: []float64{5, 5}}
+	bad := Round{T: now - 10, E: "no ICMP socket"}
+	for _, r := range []Round{good, bad} {
+		if err := s.Append("x", r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	st := calcStats(s.Recent("x", now-60))
+	if st.Rounds != 1 || st.LossPct != 0 || st.ProbeErrors != 1 {
+		t.Fatalf("stats %+v", st)
+	}
+	if b, _ := NewDetector(s).CheckBurst("x", bad); b {
+		t.Fatal("probe error flagged as burst")
+	}
+	s.Flush()
+	rows := s.queryRaw(context.Background(), "x", now-60, now)
+	if len(rows) != 2 || rows[1].E != "no ICMP socket" {
+		t.Fatalf("stored rows %+v", rows)
 	}
 }

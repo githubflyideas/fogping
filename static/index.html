@@ -95,6 +95,7 @@
           display:flex; align-items:center; gap:8px; transition:border-color .12s, color .12s; }
   .pill.on { border-color:var(--phos); color:var(--phos); font-weight:600; }
   .led { width:8px; height:8px; border-radius:50%; background:var(--phos); box-shadow:0 0 6px var(--phos); }
+  .led.warn { background:#d9a400; box-shadow:0 0 6px #d9a400; }
   .led.bad { background:var(--alert); box-shadow:0 0 6px var(--alert); }
   /* Brand dot: alternates the two colours already used for host status (green =
      healthy, red = down), so the same signal that reads "up/down" on a target row
@@ -373,7 +374,8 @@ async function loadTargets() {
     const b = document.createElement('button');
     b.className = 'pill' + (t.name === current ? ' on' : '');
     const led = document.createElement('span');
-    led.className = 'led' + (t.down ? ' bad' : '');
+    led.className = 'led' + (t.down ? ' bad' : t.probe_error ? ' warn' : '');
+    if (t.probe_error) b.title = t.probe_error; // could not measure: not the target's fault, not loss
     b.append(led, document.createTextNode(t.name)); // names are user-editable: never innerHTML
     b.onclick = () => { current = t.name; render(); };
     pills.appendChild(b);

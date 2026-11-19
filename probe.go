@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -22,6 +23,19 @@ type Round struct {
 	MS []float64 `json:"ms"`          // RTT 样本(毫秒)
 	B  bool      `json:"b,omitempty"` // flagged as a loss burst
 	Z  float64   `json:"z,omitempty"` // robust z-score behind the flag (tooltip evidence)
+	// E is set when the round could not be measured at all (DNS failed, no ICMP
+	// socket, a module crashed). Such a round has S == 0: it says nothing about
+	// the target, so it is not loss and is left out of every statistic.
+	E string `json:"e,omitempty"`
+}
+
+// errText is a probe error as stored: one line, bounded.
+func errText(err error) string {
+	s := strings.Join(strings.Fields(err.Error()), " ")
+	if len(s) > 200 {
+		s = s[:200]
+	}
+	return s
 }
 
 // probeParams 解析目标的探测节奏。优先级:显式 interval_sec > pace 档位 > 全局默认。
@@ -67,7 +81,7 @@ func probeLoop(t TargetCfg, p ProbeCfg, store *Store, det *Detector, stop chan s
 		r, err := pr.round(ctx, t, packets, gap, timeout)
 		if err != nil {
 			log.Printf("[%s] probe error: %v", t.Name, err)
-			r = Round{T: time.Now().Unix(), S: packets, R: 0} // 解析失败按全丢记录,不留时间空洞
+			r = Round{T: time.Now().Unix(), E: errText(err)} // keeps the time axis gapless without claiming loss
 		}
 		r.B, r.Z = det.CheckBurst(t.Name, r) // verdict + z evidence, written with the round
 		if err := store.Append(t.Name, r); err != nil {

@@ -174,6 +174,7 @@ func newMux(cfg *Config, store *Store, run *Runner, users map[string]string) htt
 			IntervalSet int    `json:"interval_set"` // explicit override, 0 = from pace
 			Pace        string `json:"pace"`
 			Down        bool   `json:"down"`
+			ProbeError  string `json:"probe_error,omitempty"` // why the latest round could not be measured
 			Last1h      Stats  `json:"last_1h"`
 			Last24h     Stats  `json:"last_24h"`
 		}
@@ -185,10 +186,22 @@ func newMux(cfg *Config, store *Store, run *Runner, users map[string]string) htt
 				pace = "normal"
 			}
 			rec := store.Recent(t.Name, now.Add(-time.Hour).Unix())
-			down := len(rec) > 0 && rec[len(rec)-1].R == 0
+			// down: the last measured round got no reply. A round that could not be
+			// measured says nothing about the target; it is reported as probe_error.
+			down, probeErr := false, ""
+			for i := len(rec) - 1; i >= 0; i-- {
+				if rec[i].S == 0 {
+					if i == len(rec)-1 {
+						probeErr = rec[i].E
+					}
+					continue
+				}
+				down = rec[i].R == 0
+				break
+			}
 			out = append(out, item{
 				ID: t.ID, Name: t.Name, Type: t.Type, Host: t.Host, Port: t.Port, Addr: targetAddr(t),
-				IntervalSec: int(iv.Seconds()), IntervalSet: t.IntervalSec, Pace: pace, Down: down,
+				IntervalSec: int(iv.Seconds()), IntervalSet: t.IntervalSec, Pace: pace, Down: down, ProbeError: probeErr,
 				Last1h:  calcStats(rec),
 				Last24h: calcStats(store.Recent(t.Name, now.Add(-24*time.Hour).Unix())),
 			})

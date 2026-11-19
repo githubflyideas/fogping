@@ -37,7 +37,10 @@ type statsTarget struct {
 	P99     *float64 `json:"p99,omitempty"`
 	LossPct *float64 `json:"loss_pct,omitempty"`
 	Bursts  int      `json:"bursts"`       // loss bursts flagged in the window (the chart's ◆)
-	Up      *int     `json:"up,omitempty"` // 1 if the latest round got any reply, else 0
+	Up      *int     `json:"up,omitempty"` // 1 if the latest measured round got any reply, else 0
+	// ProbeErrors counts rounds fogping could not measure at all (DNS failed, no
+	// ICMP socket). They are not loss and are in none of the numbers above.
+	ProbeErrors int `json:"probe_errors"`
 }
 
 type statsReport struct {
@@ -129,13 +132,18 @@ func buildStats(store *Store, targets []TargetCfg, now time.Time) statsReport {
 	for _, t := range targets {
 		rec := store.Recent(t.Name, since)
 		st := calcStats(rec)
-		item := statsTarget{ID: t.ID, Name: t.Name, Rounds: st.Rounds, Bursts: st.Bursts}
+		item := statsTarget{ID: t.ID, Name: t.Name, Rounds: st.Rounds, Bursts: st.Bursts, ProbeErrors: st.ProbeErrors}
 		if st.Rounds > 0 {
 			loss := st.LossPct
 			item.LossPct = &loss
 			up := 0
-			if rec[len(rec)-1].R > 0 {
-				up = 1
+			for i := len(rec) - 1; i >= 0; i-- { // latest measured round
+				if rec[i].S > 0 {
+					if rec[i].R > 0 {
+						up = 1
+					}
+					break
+				}
 			}
 			item.Up = &up
 			if st.LossPct < 100 { // some replies, so the percentiles are real
