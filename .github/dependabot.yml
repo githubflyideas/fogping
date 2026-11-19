@@ -1,0 +1,41 @@
+# Dependabot opens a pull request when a dependency has a new version, so security
+# fixes are not missed. GitHub Actions are pinned to exact commits (each with its
+# version as a comment), and Dependabot keeps those pins current too. Minor and patch
+# updates are grouped into one weekly pull request per ecosystem.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      gomod-minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: gomod
+    directory: "/plugins/ldap"
+    schedule:
+      interval: weekly
+    groups:
+      gomod-minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: cargo
+    directory: "/plugins/traceroute"
+    schedule:
+      interval: weekly
+    groups:
+      cargo-minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      docker-minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      github_actions-minor-and-patch:
+        update-types: [minor, patch]
