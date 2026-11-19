@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"errors"
 	"fmt"
 
@@ -20,44 +19,6 @@ var (
 	// one would silently merge two histories, so that path is refused.
 	errNameDeleted = errors.New("name belongs to a deleted target — add it as a new target to restore its history")
 )
-
-// migrateTargets adds the config columns to a pre-existing name-only table (1.0.x).
-// Old rows come out inactive; adding a target with the same name in the web UI
-// reactivates the row, and with it the history.
-func migrateTargets(db *sql.DB) error {
-	have := map[string]bool{}
-	rows, err := db.Query(`PRAGMA table_info(targets)`)
-	if err != nil {
-		return err
-	}
-	for rows.Next() {
-		var cid, notnull, pk int
-		var name, typ string
-		var dflt sql.NullString
-		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
-			rows.Close()
-			return err
-		}
-		have[name] = true
-	}
-	rows.Close()
-	for _, col := range []struct{ name, def string }{
-		{"type", "TEXT NOT NULL DEFAULT 'icmp'"},
-		{"host", "TEXT NOT NULL DEFAULT ''"},
-		{"port", "INTEGER NOT NULL DEFAULT 0"},
-		{"pace", "TEXT NOT NULL DEFAULT ''"},
-		{"interval_sec", "INTEGER NOT NULL DEFAULT 0"},
-		{"active", "INTEGER NOT NULL DEFAULT 0"},
-	} {
-		if have[col.name] {
-			continue
-		}
-		if _, err := db.Exec(`ALTER TABLE targets ADD COLUMN ` + col.name + ` ` + col.def); err != nil {
-			return fmt.Errorf("migrate targets.%s: %w", col.name, err)
-		}
-	}
-	return nil
-}
 
 func (s *Store) ActiveTargets() ([]TargetCfg, error) {
 	rows, err := s.db.Query(`SELECT id,name,type,host,port,pace,interval_sec

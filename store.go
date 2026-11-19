@@ -74,47 +74,8 @@ func NewStore(dir string, targets []TargetCfg) (*Store, error) {
 	}
 	db.SetMaxOpenConns(4)
 
-	schema := `
-CREATE TABLE IF NOT EXISTS targets (
-  id   INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL UNIQUE
-);
-
--- Raw rounds. Samples are a packed float32 blob: 4 bytes each, no parsing on read.
-CREATE TABLE IF NOT EXISTS rounds (
-  target_id INTEGER NOT NULL,
-  t         INTEGER NOT NULL,
-  sent      INTEGER NOT NULL,
-  recv      INTEGER NOT NULL,
-  samples   BLOB,
-  burst     INTEGER NOT NULL DEFAULT 0,
-  z         REAL    NOT NULL DEFAULT 0,
-  PRIMARY KEY (target_id, t)
-) WITHOUT ROWID;
-
--- Hourly rollup. Percentile columns are NULL for a bucket in which every packet was lost.
-CREATE TABLE IF NOT EXISTS rounds_hourly (
-  target_id INTEGER NOT NULL,
-  t         INTEGER NOT NULL,
-  lo REAL, p50 REAL, p90 REAL, p99 REAL, hi REAL,
-  loss_pct REAL, bursts INTEGER, n INTEGER,
-  PRIMARY KEY (target_id, t)
-) WITHOUT ROWID;
-
-`
-	if _, err := db.Exec(schema); err != nil {
+	if err := migrate(db); err != nil {
 		return nil, err
-	}
-	if err := migrateTargets(db); err != nil {
-		return nil, err
-	}
-	var hadDaily int
-	db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name='rounds_daily'`).Scan(&hadDaily)
-	if hadDaily > 0 {
-		if _, err := db.Exec(`DROP TABLE rounds_daily`); err != nil {
-			return nil, err
-		}
-		log.Printf("storage: dropped the daily rollup table (hourly covers the same span)")
 	}
 
 	s := &Store{
