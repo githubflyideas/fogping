@@ -23,6 +23,7 @@ func main() {
 	edit := flag.Bool("edit", false, "allow adding/editing/deleting targets from the web UI (default: read-only)")
 	showVer := flag.Bool("version", false, "print version")
 	zabbix := flag.Bool("zabbix", false, "serve a read-only GET /api/stats for the Zabbix template (needs FOGPING_ZABBIX_TOKEN)")
+	probes := flag.Bool("probes", false, "load external probers from ./probes (see docs/PROBE-PROTOCOL.md)")
 	args := os.Args[1:]
 	for _, a := range args {
 		if a == "help" { // `fogping help` would otherwise be rejected as a bad auth arg
@@ -87,6 +88,9 @@ func main() {
 		log.Fatalf("--edit needs a login or --localhost, e.g.:  ./fogping --edit user=admin passwd=change-me")
 	}
 
+	if *probes {
+		loadProbes(probesDir)
+	}
 	store, err := NewStore(cfg.DataDir, nil)
 	if err != nil {
 		log.Fatalf("store init failed: %v", err)
@@ -132,6 +136,7 @@ func main() {
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	<-sig
 	close(stop)
+	cleanupProbes()
 	if err := store.Close(); err != nil { // final flush; waits for in-flight queries
 		log.Printf("close: %v", err)
 	}

@@ -67,6 +67,7 @@ FLAGS
   --localhost     listen on 127.0.0.1:8518 instead of all interfaces (0.0.0.0:8518)
   --days=N        days of history to keep (default 93, max 93)
   --version       print the version and exit
+  --probes        load external probers from ./probes (docs/PROBE-PROTOCOL.md); off by default
   --zabbix        serve read-only stats to the Zabbix template (needs a token, see below)
   user=  passwd=  turn on the login page (comma-separated lists)
   passwd-file=F   read the passwords from file F instead, one per line

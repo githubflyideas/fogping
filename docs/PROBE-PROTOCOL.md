@@ -6,9 +6,8 @@ program. Everything here is language-neutral JSON. The Go code in fogping is one
 implementation of it, not the definition of it.
 
 This document covers **what a prober declares, how its settings are validated,
-and how fogping judges what it answers** (sections 1-7). How fogping starts a
-prober and what it asks it is a draft (section 8): written down so authors can
-see the direction, not yet implemented.
+how fogping judges what it answers** (sections 1-7), and **how fogping runs a
+prober that is its own program** (section 8).
 
 Three files define the standard:
 
@@ -182,19 +181,46 @@ ignored. The vectors are [`conformance/round.json`](conformance/round.json).
 A prober that returns fewer probes than asked (`sent` < `packets`) is allowed;
 more is not. Lost probes are not listed in `ms`.
 
-## 8. Invocation (draft, not yet implemented)
+## 8. Running a prober that is its own program
 
-For a prober that is its own program, fogping runs it **once per round**:
+fogping runs external probers only when started with `--probes`; without it
+nothing under `probes/` is read, and fogping behaves exactly as without plugins.
+
+**Layout.** Each prober is a directory under `./probes/` (next to where fogping
+is started, like `./data`):
+
+```
+probes/
+  dns/
+    manifest.json     the manifest of section 1; "type" must equal the directory name
+    probe             an executable file: a script with a #! line, or a binary
+```
+
+A directory that breaks any rule is skipped with a log line and never stops
+fogping: no `manifest.json`, an invalid manifest, a directory name different
+from `type`, a `type` already taken (a built-in cannot be replaced), `probe`
+missing, not a regular file, without the execute bit, or writable by group or
+others.
+
+**One process per round.**
 
 - Request: one JSON object on standard input,
   `{"protocol", "type", "host", "port", "packets", "gap_ms", "timeout_ms", "options"}`.
-  `options` is the canonical object of section 2. **Nothing is passed on the
-  command line or in the environment**, so a value can never become part of a
-  shell command line, and another account cannot read it in `ps`.
+  `options` is the canonical object of section 2, `{}` when there is none.
+  **Nothing is passed on the command line, and the environment holds only
+  `PATH=/usr/local/bin:/usr/bin:/bin`**, so a value can never become part of a
+  shell command line or be read from `ps`, and fogping's own settings never reach
+  a prober.
 - Answer: one JSON object on standard output (section 7). Standard error is
-  logged, truncated, and never interpreted.
-- Deadline: fogping allows `packets * (gap_ms + timeout_ms)` plus a fixed margin,
-  then kills the process. A killed or non-zero-exit prober is a probe failure.
-- Limits: output beyond 64 KB is cut and the round fails; the process runs with
-  an empty environment and in an empty working directory.
+  logged, cut at 2 KB, and never interpreted. A zero exit status is not required
+  or trusted: only a valid answer counts, and a non-zero exit is a failed round.
+- Deadline: `packets * (gap_ms + timeout_ms)` plus 5 seconds. Then the prober and
+  everything it started are killed (SIGKILL to its process group). A target that is
+  stopped or deleted kills its running round at once.
+- Working directory: one empty directory, shared by all probers, removed when
+  fogping exits.
+- Concurrency: at most 8 prober processes run at once, across all targets.
+- A failed round (killed, crashed, bad answer) is recorded as a round that could
+  not be measured: not loss, left out of every statistic.
 
+A prober's output is judged by section 7 whatever its exit status was.

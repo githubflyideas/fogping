@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -45,6 +46,9 @@ const (
 )
 
 var (
+	// regMu guards probers and order. They are filled while fogping starts, but
+	// nothing should depend on that staying true.
+	regMu   sync.RWMutex
 	probers = map[string]*prober{}
 	order   []string // registration order: the order the UI lists types in
 )
@@ -52,6 +56,8 @@ var (
 // registerProber adds a prober. Names are unique; a duplicate is a programming
 // error, caught at start.
 func registerProber(p *prober) {
+	regMu.Lock()
+	defer regMu.Unlock()
 	if p.fileName == "" {
 		p.fileName = p.name
 	}
@@ -75,6 +81,8 @@ type probeTypeInfo struct {
 }
 
 func probeTypes() []probeTypeInfo {
+	regMu.RLock()
+	defer regMu.RUnlock()
 	out := make([]probeTypeInfo, 0, len(order))
 	for _, n := range order {
 		p := probers[n]
@@ -86,6 +94,8 @@ func probeTypes() []probeTypeInfo {
 // unregisterProber removes a prober. Only tests need it: in the program the
 // registry is filled at start and never shrinks.
 func unregisterProber(name string) {
+	regMu.Lock()
+	defer regMu.Unlock()
 	delete(probers, name)
 	for i, n := range order {
 		if n == name {
@@ -96,6 +106,8 @@ func unregisterProber(name string) {
 }
 
 func proberFor(typ string) (*prober, bool) {
+	regMu.RLock()
+	defer regMu.RUnlock()
 	p, ok := probers[typ]
 	return p, ok
 }
@@ -103,6 +115,8 @@ func proberFor(typ string) (*prober, bool) {
 // proberForFile finds a prober by the type a targets file uses, or by its own
 // name, ignoring case.
 func proberForFile(fileType string) (*prober, bool) {
+	regMu.RLock()
+	defer regMu.RUnlock()
 	ft := strings.ToLower(strings.TrimSpace(fileType))
 	for _, p := range probers {
 		if ft == p.fileName || ft == p.name {
@@ -114,6 +128,8 @@ func proberForFile(fileType string) (*prober, bool) {
 
 // proberNames lists the types for error messages, e.g. "icmp|tcp".
 func proberNames(file bool) string {
+	regMu.RLock()
+	defer regMu.RUnlock()
 	var names []string
 	for _, p := range probers {
 		if file {
