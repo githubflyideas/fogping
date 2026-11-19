@@ -57,11 +57,7 @@ func main() {
 	}
 	statsToken, kvArgs, tokenIgnored, err := resolveZabbixToken(*zabbix, append(authArgs, flag.Args()...), os.Getenv)
 	if err != nil {
-		// A mistake in an optional integration must never stop the monitoring
-		// itself. The integration stays off, which is the safe state (no stats
-		// endpoint exists), and the log says why.
-		log.Printf("ERROR: %v\nERROR: the Zabbix stats API is OFF; fix the token and restart to turn it on. fogping carries on without it.", err)
-		statsToken = ""
+		log.Fatalf("%v\nRun './fogping --help' for examples.", err)
 	}
 	users, cliPasswd, err := resolveAuth(kvArgs, os.Getenv)
 	if err != nil {
