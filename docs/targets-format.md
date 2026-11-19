@@ -46,6 +46,9 @@ later version can add optional fields without breaking older readers.
 | `pace` | no | `"fast"` (every 15 s), `"normal"` (60 s, the default) or `"slow"` (300 s). |
 | `interval` | no | Seconds between rounds, 1-86400, overriding the pace. `0` or absent means "use the pace". |
 
+`options` (fogping only) is an optional object of settings that a prober beyond
+`ping` and `tcp` defines; see [OPTIONS.md](OPTIONS.md). pingping ignores it.
+
 Every row goes through exactly the validation the web editor uses, so an import
 cannot create a target the editor could not.
 

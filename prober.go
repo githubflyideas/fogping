@@ -25,6 +25,10 @@ type prober struct {
 	fileName string
 	// usesPort says the target has a meaningful port field.
 	usesPort bool
+	// options declares the settings this prober takes beyond the core fields
+	// (options.go). The editor form, validation, storage and the targets file all
+	// follow from it.
+	options []optionSpec
 	// validate checks and normalises the fields only this prober cares about.
 	// The fields every target has (name, host, pace, interval) are checked by
 	// normalizeTarget for all of them.
@@ -54,6 +58,7 @@ func registerProber(p *prober) {
 	if _, dup := probers[p.name]; dup {
 		panic("prober registered twice: " + p.name)
 	}
+	checkSpecs(p.name, p.options)
 	if p.label == "" {
 		p.label = strings.ToUpper(p.name)
 	}
@@ -63,16 +68,17 @@ func registerProber(p *prober) {
 
 // probeTypeInfo is what the UI needs to list and edit a type.
 type probeTypeInfo struct {
-	Type     string `json:"type"`
-	Label    string `json:"label"`
-	UsesPort bool   `json:"uses_port"`
+	Type     string       `json:"type"`
+	Label    string       `json:"label"`
+	UsesPort bool         `json:"uses_port"`
+	Options  []optionSpec `json:"options"`
 }
 
 func probeTypes() []probeTypeInfo {
 	out := make([]probeTypeInfo, 0, len(order))
 	for _, n := range order {
 		p := probers[n]
-		out = append(out, probeTypeInfo{Type: p.name, Label: p.label, UsesPort: p.usesPort})
+		out = append(out, probeTypeInfo{Type: p.name, Label: p.label, UsesPort: p.usesPort, Options: append([]optionSpec{}, p.options...)})
 	}
 	return out
 }

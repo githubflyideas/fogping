@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -66,7 +67,7 @@ func TestTargetsExportImportRoundTrip(t *testing.T) {
 	}
 	for i := range got {
 		got[i].ID, ts[i].ID = 0, 0
-		if got[i] != ts[i] {
+		if !reflect.DeepEqual(got[i], ts[i]) {
 			t.Errorf("row %d: %+v != %+v", i, got[i], ts[i])
 		}
 	}

@@ -21,7 +21,7 @@ var (
 )
 
 func (s *Store) ActiveTargets() ([]TargetCfg, error) {
-	rows, err := s.db.Query(`SELECT id,name,type,host,port,pace,interval_sec
+	rows, err := s.db.Query(`SELECT id,name,type,host,port,pace,interval_sec,options
 	                           FROM targets WHERE active=1 ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -30,9 +30,11 @@ func (s *Store) ActiveTargets() ([]TargetCfg, error) {
 	var out []TargetCfg
 	for rows.Next() {
 		var t TargetCfg
-		if err := rows.Scan(&t.ID, &t.Name, &t.Type, &t.Host, &t.Port, &t.Pace, &t.IntervalSec); err != nil {
+		var opts string
+		if err := rows.Scan(&t.ID, &t.Name, &t.Type, &t.Host, &t.Port, &t.Pace, &t.IntervalSec, &opts); err != nil {
 			return nil, err
 		}
+		t.Options = decodeOptions(opts)
 		out = append(out, t)
 	}
 	return out, rows.Err()
@@ -45,16 +47,16 @@ func (s *Store) TargetRows() (int, error) {
 	return n, err
 }
 
-const upsertTarget = `INSERT INTO targets(name,type,host,port,pace,interval_sec,active)
-VALUES(?,?,?,?,?,?,1)
+const upsertTarget = `INSERT INTO targets(name,type,host,port,pace,interval_sec,options,active)
+VALUES(?,?,?,?,?,?,?,1)
 ON CONFLICT(name) DO UPDATE SET type=excluded.type, host=excluded.host, port=excluded.port,
-  pace=excluded.pace, interval_sec=excluded.interval_sec, active=1`
+  pace=excluded.pace, interval_sec=excluded.interval_sec, options=excluded.options, active=1`
 
 // CreateTarget adds a target, or reactivates a deleted one of the same name. It
 // refuses to overwrite an active target: that's what UpdateTarget is for.
 func (s *Store) CreateTarget(t TargetCfg) (TargetCfg, error) {
 	res, err := s.db.Exec(upsertTarget+` WHERE targets.active=0`,
-		t.Name, t.Type, t.Host, t.Port, t.Pace, t.IntervalSec)
+		t.Name, t.Type, t.Host, t.Port, t.Pace, t.IntervalSec, encodeOptions(t.Options))
 	if err != nil {
 		return t, err
 	}
@@ -67,9 +69,9 @@ func (s *Store) CreateTarget(t TargetCfg) (TargetCfg, error) {
 
 // UpdateTarget rewrites an active target by id. Renames keep the id, so they keep history.
 func (s *Store) UpdateTarget(t TargetCfg) (TargetCfg, error) {
-	res, err := s.db.Exec(`UPDATE targets SET name=?,type=?,host=?,port=?,pace=?,interval_sec=?
+	res, err := s.db.Exec(`UPDATE targets SET name=?,type=?,host=?,port=?,pace=?,interval_sec=?,options=?
 	                        WHERE id=? AND active=1`,
-		t.Name, t.Type, t.Host, t.Port, t.Pace, t.IntervalSec, t.ID)
+		t.Name, t.Type, t.Host, t.Port, t.Pace, t.IntervalSec, encodeOptions(t.Options), t.ID)
 	var se sqlite3.Error
 	if errors.As(err, &se) && se.ExtendedCode == sqlite3.ErrConstraintUnique {
 		var active bool
@@ -132,7 +134,7 @@ func (s *Store) ImportTargets(ts []TargetCfg) error {
 	defer tx.Rollback() // no-op after Commit
 	for _, t := range ts {
 		res, err := tx.Exec(upsertTarget+` WHERE targets.active=0`,
-			t.Name, t.Type, t.Host, t.Port, t.Pace, t.IntervalSec)
+			t.Name, t.Type, t.Host, t.Port, t.Pace, t.IntervalSec, encodeOptions(t.Options))
 		if err != nil {
 			return fmt.Errorf("%q: %w", t.Name, err)
 		}

@@ -168,19 +168,20 @@ func newMux(cfg *Config, store *Store, run *Runner, users map[string]string) htt
 	mux.HandleFunc("GET /api/targets", guard(func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now()
 		type item struct {
-			ID          int64  `json:"id"`
-			Name        string `json:"name"`
-			Type        string `json:"type"`
-			Host        string `json:"host"`
-			Port        int    `json:"port"`
-			Addr        string `json:"addr"`
-			IntervalSec int    `json:"interval_sec"` // effective
-			IntervalSet int    `json:"interval_set"` // explicit override, 0 = from pace
-			Pace        string `json:"pace"`
-			Down        bool   `json:"down"`
-			ProbeError  string `json:"probe_error,omitempty"` // why the latest round could not be measured
-			Last1h      Stats  `json:"last_1h"`
-			Last24h     Stats  `json:"last_24h"`
+			ID          int64          `json:"id"`
+			Name        string         `json:"name"`
+			Type        string         `json:"type"`
+			Host        string         `json:"host"`
+			Port        int            `json:"port"`
+			Addr        string         `json:"addr"`
+			IntervalSec int            `json:"interval_sec"` // effective
+			IntervalSet int            `json:"interval_set"` // explicit override, 0 = from pace
+			Pace        string         `json:"pace"`
+			Options     map[string]any `json:"options,omitempty"`
+			Down        bool           `json:"down"`
+			ProbeError  string         `json:"probe_error,omitempty"` // why the latest round could not be measured
+			Last1h      Stats          `json:"last_1h"`
+			Last24h     Stats          `json:"last_24h"`
 		}
 		out := []item{}
 		for _, t := range run.Targets() {
@@ -205,7 +206,7 @@ func newMux(cfg *Config, store *Store, run *Runner, users map[string]string) htt
 			}
 			out = append(out, item{
 				ID: t.ID, Name: t.Name, Type: t.Type, Host: t.Host, Port: t.Port, Addr: targetAddr(t),
-				IntervalSec: int(iv.Seconds()), IntervalSet: t.IntervalSec, Pace: pace, Down: down, ProbeError: probeErr,
+				IntervalSec: int(iv.Seconds()), IntervalSet: t.IntervalSec, Pace: pace, Options: t.Options, Down: down, ProbeError: probeErr,
 				Last1h:  calcStats(rec),
 				Last24h: calcStats(store.Recent(t.Name, now.Add(-24*time.Hour).Unix())),
 			})
@@ -252,7 +253,7 @@ func newMux(cfg *Config, store *Store, run *Runner, users map[string]string) htt
 		if err := dec.Decode(&t); err != nil {
 			msg := "bad JSON: " + err.Error()
 			if f, ok := strings.CutPrefix(err.Error(), "json: unknown field "); ok {
-				msg = "unknown field " + f + "; accepted fields: id, name, type, host, port, pace, interval_sec"
+				msg = "unknown field " + f + "; accepted fields: id, name, type, host, port, pace, interval_sec, options"
 			}
 			jsonErr(w, http.StatusBadRequest, msg)
 			return t, false

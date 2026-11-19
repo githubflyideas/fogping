@@ -56,6 +56,8 @@ type TargetCfg struct {
 	Port        int    `json:"port"`         // tcp only
 	Pace        string `json:"pace"`         // "fast"(15s) | ""/"normal"(60s) | "slow"(300s)
 	IntervalSec int    `json:"interval_sec"` // explicit seconds, highest priority
+	// Options are the settings only this type's prober understands (options.go).
+	Options map[string]any `json:"options,omitempty"`
 }
 
 type ProbeCfg struct {
@@ -78,6 +80,9 @@ func normalizeTarget(t *TargetCfg) error {
 	p, ok := proberFor(t.Type)
 	if !ok {
 		return fmt.Errorf("unknown type %q (%s)", t.Type, proberNames(false))
+	}
+	if err := normalizeOptions(p, t); err != nil {
+		return err
 	}
 	if err := p.validate(t); err != nil {
 		return err

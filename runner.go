@@ -45,7 +45,7 @@ func (r *Runner) apply(fresh []TargetCfg) {
 	}
 	for id, lt := range r.live {
 		t, ok := want[id]
-		if ok && t == lt.cfg {
+		if ok && sameTarget(t, lt.cfg) {
 			continue
 		}
 		close(lt.stop)

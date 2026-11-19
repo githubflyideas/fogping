@@ -39,6 +39,7 @@
         },
         "port": { "type": "integer", "minimum": 0, "maximum": 65535, "description": "Required (1-65535) for tcp; ignored for ping." },
         "pace": { "enum": ["fast", "normal", "slow", ""], "default": "normal" },
+        "options": { "type": "object", "description": "fogping only: settings of a prober beyond the core fields (see OPTIONS.md). Other readers ignore it." },
         "interval": { "type": "integer", "minimum": 0, "maximum": 86400, "description": "Seconds; 0 or absent = use pace." }
       },
       "if": {

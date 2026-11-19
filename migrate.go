@@ -19,6 +19,7 @@ import (
 var migrations = []func(tx *sql.Tx) error{
 	migrateV1,
 	migrateV2,
+	migrateV3,
 }
 
 func schemaVersion() int { return len(migrations) }
@@ -136,5 +137,12 @@ func migrate(db *sql.DB) error {
 // no longer stored as total loss.
 func migrateV2(tx *sql.Tx) error {
 	_, err := tx.Exec(`ALTER TABLE rounds ADD COLUMN err TEXT NOT NULL DEFAULT ''`)
+	return err
+}
+
+// migrateV3 gives a target room for its prober's own options: canonical JSON,
+// empty when it has none.
+func migrateV3(tx *sql.Tx) error {
+	_, err := tx.Exec(`ALTER TABLE targets ADD COLUMN options TEXT NOT NULL DEFAULT ''`)
 	return err
 }

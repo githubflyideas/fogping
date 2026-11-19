@@ -245,6 +245,7 @@
     <select id="fPace"><option value="normal">normal · 60s</option><option value="fast">fast · 15s</option><option value="slow">slow · 300s</option></select>
     <label class="sr-only" for="fIv">Interval in seconds (overrides pace)</label>
     <input id="fIv" type="number" min="1" max="86400" placeholder="interval (s)" style="width:112px" title="overrides pace">
+    <span id="fOpts"></span>
     <button class="pill" id="fSave" type="submit">+ add</button>
     <button class="pill" id="fCancel" type="button" style="display:none">cancel</button>
     <span id="tgtErr" role="alert"></span>
@@ -887,10 +888,52 @@ function fillForm(t) {
   $('fSave').textContent = t ? 'save' : '+ add';
   $('fCancel').style.display = t ? '' : 'none';
   $('tgtErr').textContent = '';
+  optValues = (t && t.options) || {};
   $('fType').onchange();
   if (t) $('fHost').focus();
 }
-$('fType').onchange = () => { $('fPort').style.display = typeInfo($('fType').value).uses_port ? '' : 'none'; };
+// The type's own options, drawn from the spec the server sent (options.go).
+// Values live in the inputs' data-key; nothing here knows any particular option.
+let optValues = {};
+function drawOptions() {
+  const box = $('fOpts'); box.innerHTML = '';
+  typeInfo($('fType').value).options?.forEach(s => {
+    const id = 'o_' + s.key;
+    const lab = document.createElement('label'); lab.className = 'sr-only'; lab.htmlFor = id; lab.textContent = s.label;
+    let el;
+    if (s.kind === 'choice') {
+      el = document.createElement('select');
+      s.choices.forEach(c => { const o = document.createElement('option'); o.value = o.textContent = c; el.append(o); });
+    } else if (s.kind === 'bool') {
+      el = document.createElement('input'); el.type = 'checkbox';
+      const w = document.createElement('label'); w.className = 'pill'; w.append(el, document.createTextNode(' ' + s.label));
+      el.id = id; el.dataset.key = s.key; el.dataset.kind = s.kind; if (s.help) w.title = s.help;
+      el.checked = (s.key in optValues) ? !!optValues[s.key] : !!s.default;
+      box.append(w); return;
+    } else {
+      el = document.createElement('input');
+      if (s.kind === 'int') { el.type = 'number'; el.style.width = '96px'; if (s.min != null) el.min = s.min; if (s.max) el.max = s.max; }
+      else { el.size = 16; if (s.max_len) el.maxLength = s.max_len; }
+      el.placeholder = s.label + (s.required ? '' : ' (optional)');
+    }
+    el.id = id; el.dataset.key = s.key; el.dataset.kind = s.kind; el.title = s.help || s.label;
+    if (s.required) el.required = true;
+    const v = (s.key in optValues) ? optValues[s.key] : s.default;
+    if (v !== undefined && v !== null) el.value = v;
+    box.append(lab, el);
+  });
+}
+function readOptions() {
+  const out = {};
+  $('fOpts').querySelectorAll('[data-key]').forEach(el => {
+    const k = el.dataset.key, kind = el.dataset.kind;
+    if (kind === 'bool') out[k] = el.checked;
+    else if (el.value === '') return;
+    else out[k] = kind === 'int' ? +el.value : el.value;
+  });
+  return out;
+}
+$('fType').onchange = () => { $('fPort').style.display = typeInfo($('fType').value).uses_port ? '' : 'none'; drawOptions(); };
 $('fCancel').onclick = () => fillForm(null);
 async function targetCall(method, url, body) {
   const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' },
@@ -902,7 +945,8 @@ async function targetCall(method, url, body) {
 $('tgtForm').onsubmit = async e => {
   e.preventDefault();
   const body = { type: $('fType').value, host: $('fHost').value, port: +$('fPort').value || 0,
-                 name: $('fName').value, pace: $('fPace').value, interval_sec: +$('fIv').value || 0 };
+                 name: $('fName').value, pace: $('fPace').value, interval_sec: +$('fIv').value || 0,
+                 options: readOptions() };
   try {
     const t = editingId ? await targetCall('PUT', `/api/targets/${editingId}`, body)
                         : await targetCall('POST', '/api/targets', body);

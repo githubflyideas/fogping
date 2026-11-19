@@ -41,6 +41,9 @@ type fileTarget struct {
 	Port     int    `json:"port,omitempty"` // tcp only
 	Pace     string `json:"pace,omitempty"` // fast | normal | slow
 	Interval int    `json:"interval,omitempty"`
+	// Options are the prober-specific settings (options.go). Older readers ignore
+	// the field, as the format says they ignore any field they do not know.
+	Options map[string]any `json:"options,omitempty"`
 }
 
 type targetsFile struct {
@@ -52,7 +55,7 @@ type targetsFile struct {
 }
 
 func toFileTarget(t TargetCfg) fileTarget {
-	f := fileTarget{Name: t.Name, Type: t.Type, Host: t.Host, Pace: t.Pace, Interval: t.IntervalSec}
+	f := fileTarget{Name: t.Name, Type: t.Type, Host: t.Host, Pace: t.Pace, Interval: t.IntervalSec, Options: t.Options}
 	if p, ok := proberFor(t.Type); ok {
 		f.Type = p.fileName
 		if p.usesPort {
@@ -107,6 +110,7 @@ func fromFileRow(raw json.RawMessage) (TargetCfg, string, error) {
 	}
 	t.Type = p.name
 	t.Name, t.Host, t.Port, t.Pace, t.IntervalSec = f.Name, f.Host, f.Port, f.Pace, f.Interval
+	t.Options = f.Options
 	if err := normalizeTarget(&t); err != nil {
 		return t, name, err
 	}
