@@ -87,12 +87,10 @@ func main() {
 		log.Printf("zabbix: on — read-only GET /api/stats for the Zabbix template")
 	}
 	// An open, writable UI would let anyone who can reach the port make this host
-	// ping or TCP-connect to arbitrary addresses, so editing is refused. Refused,
-	// not fatal: the monitoring starts, read-only, and the log says what to add.
-	if cfg.Editable && len(users) == 0 && !*localOnly {
-		log.Printf("ERROR: --edit needs a login or --localhost, so editing is OFF and fogping starts read-only. " +
-			"To edit:  ./fogping --edit user=admin passwd=change-me")
-		cfg.Editable = false
+	// ping or TCP-connect to arbitrary addresses. Refuse to start rather than warn:
+	// this is a security rule, and nothing may fall back to an open, editable console.
+	if err := checkEditAllowed(cfg.Editable, len(users) > 0, *localOnly); err != nil {
+		log.Fatalf("%v", err)
 	}
 
 	if *probes {
@@ -289,4 +287,14 @@ func portOf(listen string) string {
 		}
 	}
 	return ":8518"
+}
+
+// checkEditAllowed is the rule that --edit needs a login or --localhost. It is its own
+// function so a test can hold it: this refusal is deliberate, and a convenience that
+// starts the program anyway would leave an editable console open to anyone.
+func checkEditAllowed(edit, hasLogin, localOnly bool) error {
+	if edit && !hasLogin && !localOnly {
+		return fmt.Errorf("--edit needs a login or --localhost, e.g.:  ./fogping --edit user=admin passwd=change-me")
+	}
+	return nil
 }
