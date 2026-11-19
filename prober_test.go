@@ -50,7 +50,7 @@ func TestBuiltInProbers(t *testing.T) {
 func fakeProber(t *testing.T, p *prober) {
 	t.Helper()
 	registerProber(p)
-	t.Cleanup(func() { delete(probers, p.name) })
+	t.Cleanup(func() { unregisterProber(p.name) })
 }
 
 // A new prober is one registerProber call: validation, addresses, the targets
@@ -71,6 +71,13 @@ func TestAddingAProberIsOneRegistration(t *testing.T) {
 	}
 	if tg.Name != "example.net:8080" {
 		t.Errorf("default name %q", tg.Name)
+	}
+	var listed bool
+	for _, pt := range probeTypes() {
+		listed = listed || (pt.Type == "fake" && pt.UsesPort && pt.Label == "FAKE")
+	}
+	if !listed {
+		t.Error("probeTypes (the UI list) does not include the new prober")
 	}
 	f := toFileTarget(tg)
 	if f.Type != "fake-file" || f.Port != 8080 {

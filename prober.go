@@ -77,6 +77,18 @@ func probeTypes() []probeTypeInfo {
 	return out
 }
 
+// unregisterProber removes a prober. Only tests need it: in the program the
+// registry is filled at start and never shrinks.
+func unregisterProber(name string) {
+	delete(probers, name)
+	for i, n := range order {
+		if n == name {
+			order = append(order[:i:i], order[i+1:]...)
+			break
+		}
+	}
+}
+
 func proberFor(typ string) (*prober, bool) {
 	p, ok := probers[typ]
 	return p, ok
