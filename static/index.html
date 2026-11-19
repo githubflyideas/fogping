@@ -222,8 +222,6 @@
 <div class="row">
   <div class="rng" id="tfilter" style="display:none">
     <button data-t="all" class="on">All</button>
-    <button data-t="icmp">PING</button>
-    <button data-t="tcp">TCP</button>
   </div>
   <div class="pills" id="pills"></div>
 </div>
@@ -236,7 +234,7 @@
   </table>
   <form id="tgtForm" autocomplete="off">
     <label class="sr-only" for="fType">Type</label>
-    <select id="fType"><option value="icmp">PING</option><option value="tcp">TCP</option></select>
+    <select id="fType"></select>
     <label class="sr-only" for="fHost">Host or IP</label>
     <input id="fHost" placeholder="host or IP" size="22" required>
     <label class="sr-only" for="fPort">Port</label>
@@ -363,7 +361,24 @@ const chart = echarts.init($('chart'));
 
 
 
+// The probe types come from the server, so a new prober needs no change here.
+let probeTypes = [];
+function typeInfo(type) {
+  return probeTypes.find(p => p.type === type) || { type, label: String(type).toUpperCase(), uses_port: false };
+}
+async function loadProbeTypes() {
+  try { probeTypes = await (await fetch('/api/probe-types')).json() || []; } catch (e) { probeTypes = []; }
+  const tf = $('tfilter');
+  tf.querySelectorAll('button:not([data-t="all"])').forEach(b => b.remove());
+  const sel = $('fType'); sel.innerHTML = '';
+  probeTypes.forEach(p => {
+    const b = document.createElement('button'); b.dataset.t = p.type; b.textContent = p.label; tf.append(b);
+    const o = document.createElement('option'); o.value = p.type; o.textContent = p.label; sel.append(o);
+  });
+}
+
 async function loadTargets() {
+  if (!probeTypes.length) await loadProbeTypes();
   targets = await (await fetch('/api/targets')).json() || [];
   const kinds = new Set(targets.map(t => t.type));
   $('tfilter').style.display = kinds.size > 1 ? '' : 'none';
@@ -809,12 +824,14 @@ $('customGo').onclick = () => {
   $('selReset').style.display = '';
   render();
 };
-document.querySelectorAll('#tfilter button').forEach(b => b.onclick = () => {
+$('tfilter').onclick = e => {
+  const b = e.target.closest('button[data-t]');
+  if (!b) return;
   document.querySelectorAll('#tfilter button').forEach(x => x.classList.remove('on'));
   b.classList.add('on');
   typeFilter = b.dataset.t;
   render();
-});
+};
 
 // 版本号显示在赞助栏标题;保留期决定哪些时间窗有意义
 fetch('/api/version').then(r => r.json()).then(d => {
@@ -849,7 +866,7 @@ function drawTargetTable() {
     const tr = document.createElement('tr');
     const cell = (text, cls) => { const td = document.createElement('td'); td.textContent = text;
                                   if (cls) td.className = cls; tr.append(td); };
-    cell(t.name); cell(t.type === 'tcp' ? 'TCP' : 'PING'); cell(t.addr, 'mono');
+    cell(t.name); cell(typeInfo(t.type).label); cell(t.addr, 'mono');
     cell(t.pace); cell(t.interval_sec + 's' + (t.interval_set ? '' : ' (pace)'), 'mono');
     const act = document.createElement('td'); act.className = 'act';
     const ed = document.createElement('button'); ed.className = 'lnk'; ed.textContent = 'edit';
@@ -861,7 +878,7 @@ function drawTargetTable() {
 }
 function fillForm(t) {
   editingId = t ? t.id : 0;
-  $('fType').value = t ? t.type : 'icmp';
+  $('fType').value = t ? t.type : (probeTypes[0] ? probeTypes[0].type : '');
   $('fHost').value = t ? t.host : '';
   $('fPort').value = t && t.port ? t.port : '';
   $('fName').value = t ? t.name : '';
@@ -873,7 +890,7 @@ function fillForm(t) {
   $('fType').onchange();
   if (t) $('fHost').focus();
 }
-$('fType').onchange = () => { $('fPort').style.display = $('fType').value === 'tcp' ? '' : 'none'; };
+$('fType').onchange = () => { $('fPort').style.display = typeInfo($('fType').value).uses_port ? '' : 'none'; };
 $('fCancel').onclick = () => fillForm(null);
 async function targetCall(method, url, body) {
   const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' },
@@ -918,7 +935,7 @@ $('editBtn').onclick = () => {
   let pending = null;
   const msg = (text, bad) => { $('ieMsg').textContent = text; $('ieMsg').className = bad ? 'bad' : ''; };
   const hide = () => { $('iePreview').style.display = 'none'; pending = null; };
-  const addr = r => r.type === 'tcp' ? (r.host.includes(':') ? `[${r.host}]:${r.port}` : `${r.host}:${r.port}`) : r.host;
+  const addr = r => typeInfo(r.type).uses_port ? (r.host.includes(':') ? `[${r.host}]:${r.port}` : `${r.host}:${r.port}`) : r.host;
   async function post(body, dry) {
     const res = await fetch('/api/targets/import' + (dry ? '?dry_run=1' : ''),
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
@@ -936,7 +953,7 @@ $('editBtn').onclick = () => {
     });
     const rows = [
       ...p.add.map(r => ({ row: r.row, cls: 'add', st: tr('console.ieStAdd', '+ add'), name: r.name,
-        what: `${r.type === 'tcp' ? 'TCP' : 'PING'} ${addr(r)} · ${r.pace || 'normal'}${r.interval ? ' · ' + r.interval + 's' : ''}`,
+        what: `${typeInfo(r.type).label} ${addr(r)} · ${r.pace || 'normal'}${r.interval ? ' · ' + r.interval + 's' : ''}`,
         why: r.restores_history ? tr('console.ieRestore', 'restores the history of a deleted target with this name') : '' })),
       ...p.skip.map(r => ({ row: r.row, cls: 'skip', st: tr('console.ieStSkip', 'skip'), name: r.name, what: '',
         why: r.code === 'exists' ? tr('console.ieExists', 'a target with this name already exists')

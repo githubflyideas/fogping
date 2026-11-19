@@ -58,6 +58,7 @@ These are enforced by tests (`api_test.go`): code that breaks one does not pass 
 | POST | /api/login | none | Sign in. Body `{"user": "…", "pass": "…"}`; sets the session cookie. Repeated failures from one address get `429`. |
 | POST | /api/logout | none | Sign out: the session ends on the server too. Safe to call without one. |
 | GET | /api/version | none / session | `{"version"}` for everyone; with a session (or no login configured) also `retention_days`, `hot_days`, `editable`. |
+| GET | /api/probe-types | session | The probe types this fogping can run, in display order: `[{"type", "label", "uses_port"}]`. The UI builds its type filter and form from it. |
 | GET | /api/targets | session | Every target with its last-hour and last-day summary. |
 | POST | /api/targets | session, `--edit` | Create a target. Unknown fields are refused. |
 | PUT | /api/targets/{id} | session, `--edit` | Replace a target. |

@@ -161,6 +161,10 @@ func newMux(cfg *Config, store *Store, run *Runner, users map[string]string) htt
 			"editable": cfg.Editable})
 	})
 
+	mux.HandleFunc("GET /api/probe-types", guard(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, probeTypes())
+	}))
+
 	mux.HandleFunc("GET /api/targets", guard(func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now()
 		type item struct {

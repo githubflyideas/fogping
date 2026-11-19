@@ -18,6 +18,8 @@ import (
 type prober struct {
 	// name is the target type as stored and as the API speaks it: "icmp".
 	name string
+	// label is the short name the UI shows: "PING".
+	label string
 	// fileName is the type in a netping-targets file ("ping" for icmp), so files
 	// stay readable by pingping. Defaults to name.
 	fileName string
@@ -38,7 +40,10 @@ const (
 	typeTCP  = "tcp"
 )
 
-var probers = map[string]*prober{}
+var (
+	probers = map[string]*prober{}
+	order   []string // registration order: the order the UI lists types in
+)
 
 // registerProber adds a prober. Names are unique; a duplicate is a programming
 // error, caught at start.
@@ -49,7 +54,27 @@ func registerProber(p *prober) {
 	if _, dup := probers[p.name]; dup {
 		panic("prober registered twice: " + p.name)
 	}
+	if p.label == "" {
+		p.label = strings.ToUpper(p.name)
+	}
 	probers[p.name] = p
+	order = append(order, p.name)
+}
+
+// probeTypeInfo is what the UI needs to list and edit a type.
+type probeTypeInfo struct {
+	Type     string `json:"type"`
+	Label    string `json:"label"`
+	UsesPort bool   `json:"uses_port"`
+}
+
+func probeTypes() []probeTypeInfo {
+	out := make([]probeTypeInfo, 0, len(order))
+	for _, n := range order {
+		p := probers[n]
+		out = append(out, probeTypeInfo{Type: p.name, Label: p.label, UsesPort: p.usesPort})
+	}
+	return out
 }
 
 func proberFor(typ string) (*prober, bool) {
@@ -95,6 +120,7 @@ func targetAddr(t TargetCfg) string {
 func init() {
 	registerProber(&prober{
 		name:     typeICMP,
+		label:    "PING",
 		fileName: "ping",
 		validate: func(t *TargetCfg) error {
 			t.Port = 0
