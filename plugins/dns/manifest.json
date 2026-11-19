@@ -1,0 +1,13 @@
+{
+  "protocol": "fogping-probe/1",
+  "type": "dns",
+  "label": "DNS",
+  "uses_port": true,
+  "options": [
+    {"key": "query", "label": "Name to look up", "kind": "string", "required": true, "max_len": 253,
+     "help": "The name asked of the DNS server (the target's host), for example example.com"},
+    {"key": "record", "label": "Record type", "kind": "choice", "choices": ["A", "AAAA", "MX", "NS", "TXT", "CNAME", "SOA"], "default": "A"},
+    {"key": "require_answer", "label": "Require an answer", "kind": "bool", "default": true,
+     "help": "On: a reply with no records (NODATA) counts as lost. Off: any NOERROR reply counts."}
+  ]
+}

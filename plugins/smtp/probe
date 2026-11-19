@@ -1,0 +1,187 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# A fogping prober that times an SMTP server's greeting and EHLO. Written in Ruby,
+# standard library only. It logs in as nobody and sends no mail: it opens a
+# connection, talks just enough SMTP to reach the stage you asked to measure, says
+# QUIT and hangs up. Because it never authenticates there are no passwords to keep.
+#
+# HOW A PROBER TALKS TO FOGPING (the same in every language)
+#   1. read ONE JSON object from standard input      (the request)
+#   2. measure
+#   3. write ONE JSON object to standard output       (the answer)
+# Nothing arrives on the command line and the environment is nearly empty, so a
+# user's input can never be turned into a shell command. The complete contract is
+# docs/PROBE-PROTOCOL.md.
+#
+# Try it by hand:
+#   echo '{"protocol":"fogping-probe/1","type":"smtp","host":"smtp.example.com","port":587,
+#          "packets":2,"gap_ms":500,"timeout_ms":5000,
+#          "options":{"security":"starttls","stage":"ehlo"}}' | ./probe
+
+require 'json'
+require 'openssl'
+require 'socket'
+require 'timeout'
+
+PROTOCOL = 'fogping-probe/1'
+
+# Limits on what a server may send us. A prober talks to machines that may be
+# broken or hostile; it must never read without bound.
+MAX_LINE   = 1024 # bytes in one reply line (RFC 5321 allows 512)
+MAX_LINES  = 64   # lines in one multi-line reply
+
+# What a name we announce in EHLO may contain. A whitelist, because this text goes
+# straight onto the wire: a newline in it would let the user inject SMTP commands.
+HELO_NAME = /\A[A-Za-z0-9][A-Za-z0-9.-]{0,252}\z/.freeze
+
+# The server answered, but not the way a healthy SMTP server does. The probe is
+# lost (the service is not working) rather than the round being unmeasurable.
+class BadReply < StandardError; end
+
+# --------------------------------------------------------------------------
+# SMTP, just enough of it
+# --------------------------------------------------------------------------
+
+# Read one complete reply and return its three-digit code.
+#
+# A reply is one or more lines. Every line starts with the code; a "-" after it
+# (250-SIZE ...) means more lines follow, a space (250 OK) marks the last one.
+def read_reply(io)
+  code = nil
+  MAX_LINES.times do
+    line = io.gets("\n", MAX_LINE)
+    raise BadReply, 'connection closed' if line.nil?
+    raise BadReply, 'reply line too long' unless line.end_with?("\n")
+    m = /\A(\d{3})([ -])/.match(line)
+    raise BadReply, 'not an SMTP reply' unless m
+    code ||= m[1].to_i
+    raise BadReply, 'reply code changed mid-reply' unless m[1].to_i == code
+    return code if m[2] == ' '
+  end
+  raise BadReply, 'reply has too many lines'
+end
+
+def send_line(io, text)
+  io.write("#{text}\r\n") # SMTP lines end in CRLF
+end
+
+# Wrap a connected socket in TLS, verifying the certificate and the name.
+#
+# `hostname` is also sent as SNI. When the target is an IP address there is no
+# name to match, so verification fails: use a hostname in the target if you want
+# TLS checked (and we say so in the README rather than switching checks off).
+def start_tls(sock, hostname)
+  ctx = OpenSSL::SSL::SSLContext.new
+  ctx.set_params(verify_mode: OpenSSL::SSL::VERIFY_PEER) # default CA store, hostname verification on
+  ssl = OpenSSL::SSL::SSLSocket.new(sock, ctx)
+  ssl.hostname = hostname
+  ssl.sync_close = true
+  ssl.connect
+  ssl.post_connection_check(hostname)
+  ssl
+end
+
+# One probe: connect, talk, stop at the requested stage. Returns milliseconds, or
+# nil when the server did not behave (lost); a timeout raises Timeout::Error.
+def one_probe(cfg)
+  start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+  io = TCPSocket.new(cfg[:host], cfg[:port])
+  begin
+    io = start_tls(io, cfg[:host]) if cfg[:security] == 'tls'
+    return nil unless read_reply(io) == 220 # the greeting
+    elapsed = proc { (Process.clock_gettime(Process::CLOCK_MONOTONIC) - start) * 1000.0 }
+    return elapsed.call if cfg[:stage] == 'banner'
+
+    send_line(io, "EHLO #{cfg[:helo]}")
+    return nil unless read_reply(io) == 250
+
+    if cfg[:security] == 'starttls'
+      send_line(io, 'STARTTLS')
+      return nil unless read_reply(io) == 220
+      io = start_tls(io, cfg[:host])
+      # After the upgrade everything said before is forgotten: ask again.
+      send_line(io, "EHLO #{cfg[:helo]}")
+      return nil unless read_reply(io) == 250
+    end
+    ms = elapsed.call
+    # Be polite and hang up properly. This is NOT part of the timing, and if it
+    # fails the measurement is still good.
+    begin
+      send_line(io, 'QUIT')
+    rescue StandardError
+      nil
+    end
+    ms
+  rescue BadReply, OpenSSL::SSL::SSLError
+    nil # the server (or its certificate) is not healthy: a lost probe
+  ensure
+    io.close unless io.closed?
+  end
+end
+
+# --------------------------------------------------------------------------
+# The round
+# --------------------------------------------------------------------------
+
+# Turn the request into a config hash, or return an error message String.
+def parse(req)
+  opts = req['options'] || {}
+  host = req['host']
+  return 'host must be a hostname or an IP address' unless host.is_a?(String) && host.match?(/\A[A-Za-z0-9._:-]{1,253}\z/)
+
+  port = req['port']
+  return 'port must be 1-65535' unless port.is_a?(Integer) && port.between?(1, 65_535)
+
+  helo = opts['helo_name'] || 'fogping.invalid'
+  return 'EHLO name may only contain letters, digits, dots and hyphens' unless helo.is_a?(String) && helo.match?(HELO_NAME)
+
+  packets = req['packets']
+  return 'packets out of range' unless packets.is_a?(Integer) && packets.between?(1, 1000)
+
+  {
+    host: host, port: port, helo: helo, packets: packets,
+    security: opts['security'] || 'none', stage: opts['stage'] || 'ehlo',
+    gap: req['gap_ms'].to_f / 1000.0, timeout: req['timeout_ms'].to_f / 1000.0
+  }
+end
+
+def measure(cfg)
+  rtts = []
+  cfg[:packets].times do |i|
+    sleep(cfg[:gap]) if i.positive?
+    begin
+      # Timeout covers connect, TLS and every read of the probe. (It is not a
+      # perfect tool in general, but for blocking socket calls like these it does
+      # what it says, and it keeps the code readable.)
+      ms = Timeout.timeout(cfg[:timeout]) { one_probe(cfg) }
+      rtts << ms.round(3) if ms
+    rescue Timeout::Error, SystemCallError, SocketError
+      nil # no answer in time, refused, unreachable, cannot resolve: all of these are loss
+    end
+  end
+  # Always all three of sent, received and ms. Lost probes are absent from ms.
+  { protocol: PROTOCOL, sent: cfg[:packets], received: rtts.length, ms: rtts }
+end
+
+def failure(message)
+  # We could not measure at all. fogping records this as a failed round, not as
+  # packet loss.
+  { protocol: PROTOCOL, error: message }
+end
+
+def main
+  req = JSON.parse($stdin.read(64 * 1024))
+  answer =
+    if req['protocol'] != PROTOCOL
+      failure('unsupported protocol')
+    else
+      cfg = parse(req)
+      cfg.is_a?(String) ? failure(cfg) : measure(cfg)
+    end
+  puts JSON.generate(answer)
+rescue JSON::ParserError, TypeError => e
+  puts JSON.generate(failure("bad request: #{e.message[0, 100]}"))
+end
+
+main if $PROGRAM_NAME == __FILE__

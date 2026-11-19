@@ -1,0 +1,10 @@
+{
+  "protocol": "fogping-probe/1",
+  "type": "ssh",
+  "label": "SSH",
+  "uses_port": true,
+  "options": [
+    {"key": "expect_banner", "label": "Banner starts with", "kind": "string", "default": "SSH-2.0-", "max_len": 32,
+     "help": "A probe counts only if the server's first line starts with this. Letters, digits, dots, hyphens and underscores."}
+  ]
+}
