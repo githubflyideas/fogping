@@ -1,0 +1,939 @@
+{
+ "description": "Option-value vectors. 'options' are the prober's specs, 'input' what a user supplied. 'want' is the exact canonical result (keys absent from it are absent); 'error' is the code every implementation must report. Values are compared as JSON.",
+ "vectors": [
+  {
+   "name": "defaults fill in",
+   "options": [
+    {
+     "key": "record",
+     "label": "Record",
+     "kind": "choice",
+     "choices": [
+      "A",
+      "AAAA",
+      "MX"
+     ],
+     "default": "A"
+    },
+    {
+     "key": "retries",
+     "label": "Retries",
+     "kind": "int",
+     "min": 0,
+     "max": 5
+    },
+    {
+     "key": "query",
+     "label": "Query",
+     "kind": "string",
+     "required": true,
+     "max_len": 8
+    },
+    {
+     "key": "use_tcp",
+     "label": "Use_Tcp",
+     "kind": "bool"
+    }
+   ],
+   "input": {
+    "query": "x"
+   },
+   "want": {
+    "query": "x",
+    "record": "A"
+   }
+  },
+  {
+   "name": "all given",
+   "options": [
+    {
+     "key": "record",
+     "label": "Record",
+     "kind": "choice",
+     "choices": [
+      "A",
+      "AAAA",
+      "MX"
+     ],
+     "default": "A"
+    },
+    {
+     "key": "retries",
+     "label": "Retries",
+     "kind": "int",
+     "min": 0,
+     "max": 5
+    },
+    {
+     "key": "query",
+     "label": "Query",
+     "kind": "string",
+     "required": true,
+     "max_len": 8
+    },
+    {
+     "key": "use_tcp",
+     "label": "Use_Tcp",
+     "kind": "bool"
+    }
+   ],
+   "input": {
+    "query": "x",
+    "record": "MX",
+    "retries": 3,
+    "use_tcp": true
+   },
+   "want": {
+    "query": "x",
+    "record": "MX",
+    "retries": 3,
+    "use_tcp": true
+   }
+  },
+  {
+   "name": "false is kept",
+   "options": [
+    {
+     "key": "record",
+     "label": "Record",
+     "kind": "choice",
+     "choices": [
+      "A",
+      "AAAA",
+      "MX"
+     ],
+     "default": "A"
+    },
+    {
+     "key": "retries",
+     "label": "Retries",
+     "kind": "int",
+     "min": 0,
+     "max": 5
+    },
+    {
+     "key": "query",
+     "label": "Query",
+     "kind": "string",
+     "required": true,
+     "max_len": 8
+    },
+    {
+     "key": "use_tcp",
+     "label": "Use_Tcp",
+     "kind": "bool"
+    }
+   ],
+   "input": {
+    "query": "x",
+    "use_tcp": false
+   },
+   "want": {
+    "query": "x",
+    "record": "A",
+    "use_tcp": false
+   }
+  },
+  {
+   "name": "zero is kept",
+   "options": [
+    {
+     "key": "record",
+     "label": "Record",
+     "kind": "choice",
+     "choices": [
+      "A",
+      "AAAA",
+      "MX"
+     ],
+     "default": "A"
+    },
+    {
+     "key": "retries",
+     "label": "Retries",
+     "kind": "int",
+     "min": 0,
+     "max": 5
+    },
+    {
+     "key": "query",
+     "label": "Query",
+     "kind": "string",
+     "required": true,
+     "max_len": 8
+    },
+    {
+     "key": "use_tcp",
+     "label": "Use_Tcp",
+     "kind": "bool"
+    }
+   ],
+   "input": {
+    "query": "x",
+    "retries": 0
+   },
+   "want": {
+    "query": "x",
+    "record": "A",
+    "retries": 0
+   }
+  },
+  {
+   "name": "string is trimmed",
+   "options": [
+    {
+     "key": "record",
+     "label": "Record",
+     "kind": "choice",
+     "choices": [
+      "A",
+      "AAAA",
+      "MX"
+     ],
+     "default": "A"
+    },
+    {
+     "key": "retries",
+     "label": "Retries",
+     "kind": "int",
+     "min": 0,
+     "max": 5
+    },
+    {
+     "key": "query",
+     "label": "Query",
+     "kind": "string",
+     "required": true,
+     "max_len": 8
+    },
+    {
+     "key": "use_tcp",
+     "label": "Use_Tcp",
+     "kind": "bool"
+    }
+   ],
+   "input": {
+    "query": "  x  "
+   },
+   "want": {
+    "query": "x",
+    "record": "A"
+   }
+  },
+  {
+   "name": "null counts as missing",
+   "options": [
+    {
+     "key": "record",
+     "label": "Record",
+     "kind": "choice",
+     "choices": [
+      "A",
+      "AAAA",
+      "MX"
+     ],
+     "default": "A"
+    },
+    {
+     "key": "retries",
+     "label": "Retries",
+     "kind": "int",
+     "min": 0,
+     "max": 5
+    },
+    {
+     "key": "query",
+     "label": "Query",
+     "kind": "string",
+     "required": true,
+     "max_len": 8
+    },
+    {
+     "key": "use_tcp",
+     "label": "Use_Tcp",
+     "kind": "bool"
+    }
+   ],
+   "input": {
+    "query": "x",
+    "record": null
+   },
+   "want": {
+    "query": "x",
+    "record": "A"
+   }
+  },
+  {
+   "name": "empty string counts as missing",
+   "options": [
+    {
+     "key": "record",
+     "label": "Record",
+     "kind": "choice",
+     "choices": [
+      "A",
+      "AAAA",
+      "MX"
+     ],
+     "default": "A"
+    },
+    {
+     "key": "retries",
+     "label": "Retries",
+     "kind": "int",
+     "min": 0,
+     "max": 5
+    },
+    {
+     "key": "query",
+     "label": "Query",
+     "kind": "string",
+     "required": true,
+     "max_len": 8
+    },
+    {
+     "key": "use_tcp",
+     "label": "Use_Tcp",
+     "kind": "bool"
+    }
+   ],
+   "input": {
+    "query": "x",
+    "record": ""
+   },
+   "want": {
+    "query": "x",
+    "record": "A"
+   }
+  },
+  {
+   "name": "whole float is an integer",
+   "options": [
+    {
+     "key": "record",
+     "label": "Record",
+     "kind": "choice",
+     "choices": [
+      "A",
+      "AAAA",
+      "MX"
+     ],
+     "default": "A"
+    },
+    {
+     "key": "retries",
+     "label": "Retries",
+     "kind": "int",
+     "min": 0,
+     "max": 5
+    },
+    {
+     "key": "query",
+     "label": "Query",
+     "kind": "string",
+     "required": true,
+     "max_len": 8
+    },
+    {
+     "key": "use_tcp",
+     "label": "Use_Tcp",
+     "kind": "bool"
+    }
+   ],
+   "input": {
+    "query": "x",
+    "retries": 2.0
+   },
+   "want": {
+    "query": "x",
+    "record": "A",
+    "retries": 2
+   }
+  },
+  {
+   "name": "no input and nothing required",
+   "options": [
+    {
+     "key": "retries",
+     "label": "Retries",
+     "kind": "int",
+     "min": 0,
+     "max": 5
+    }
+   ],
+   "input": {},
+   "want": {}
+  },
+  {
+   "name": "required missing",
+   "options": [
+    {
+     "key": "record",
+     "label": "Record",
+     "kind": "choice",
+     "choices": [
+      "A",
+      "AAAA",
+      "MX"
+     ],
+     "default": "A"
+    },
+    {
+     "key": "retries",
+     "label": "Retries",
+     "kind": "int",
+     "min": 0,
+     "max": 5
+    },
+    {
+     "key": "query",
+     "label": "Query",
+     "kind": "string",
+     "required": true,
+     "max_len": 8
+    },
+    {
+     "key": "use_tcp",
+     "label": "Use_Tcp",
+     "kind": "bool"
+    }
+   ],
+   "input": {
+    "record": "A"
+   },
+   "error": "required"
+  },
+  {
+   "name": "required empty after trim",
+   "options": [
+    {
+     "key": "record",
+     "label": "Record",
+     "kind": "choice",
+     "choices": [
+      "A",
+      "AAAA",
+      "MX"
+     ],
+     "default": "A"
+    },
+    {
+     "key": "retries",
+     "label": "Retries",
+     "kind": "int",
+     "min": 0,
+     "max": 5
+    },
+    {
+     "key": "query",
+     "label": "Query",
+     "kind": "string",
+     "required": true,
+     "max_len": 8
+    },
+    {
+     "key": "use_tcp",
+     "label": "Use_Tcp",
+     "kind": "bool"
+    }
+   ],
+   "input": {
+    "query": "   "
+   },
+   "error": "required"
+  },
+  {
+   "name": "unknown key",
+   "options": [
+    {
+     "key": "record",
+     "label": "Record",
+     "kind": "choice",
+     "choices": [
+      "A",
+      "AAAA",
+      "MX"
+     ],
+     "default": "A"
+    },
+    {
+     "key": "retries",
+     "label": "Retries",
+     "kind": "int",
+     "min": 0,
+     "max": 5
+    },
+    {
+     "key": "query",
+     "label": "Query",
+     "kind": "string",
+     "required": true,
+     "max_len": 8
+    },
+    {
+     "key": "use_tcp",
+     "label": "Use_Tcp",
+     "kind": "bool"
+    }
+   ],
+   "input": {
+    "query": "x",
+    "recrd": "A"
+   },
+   "error": "unknown_option"
+  },
+  {
+   "name": "bad choice",
+   "options": [
+    {
+     "key": "record",
+     "label": "Record",
+     "kind": "choice",
+     "choices": [
+      "A",
+      "AAAA",
+      "MX"
+     ],
+     "default": "A"
+    },
+    {
+     "key": "retries",
+     "label": "Retries",
+     "kind": "int",
+     "min": 0,
+     "max": 5
+    },
+    {
+     "key": "query",
+     "label": "Query",
+     "kind": "string",
+     "required": true,
+     "max_len": 8
+    },
+    {
+     "key": "use_tcp",
+     "label": "Use_Tcp",
+     "kind": "bool"
+    }
+   ],
+   "input": {
+    "query": "x",
+    "record": "ZZ"
+   },
+   "error": "bad_choice"
+  },
+  {
+   "name": "choice is case sensitive",
+   "options": [
+    {
+     "key": "record",
+     "label": "Record",
+     "kind": "choice",
+     "choices": [
+      "A",
+      "AAAA",
+      "MX"
+     ],
+     "default": "A"
+    },
+    {
+     "key": "retries",
+     "label": "Retries",
+     "kind": "int",
+     "min": 0,
+     "max": 5
+    },
+    {
+     "key": "query",
+     "label": "Query",
+     "kind": "string",
+     "required": true,
+     "max_len": 8
+    },
+    {
+     "key": "use_tcp",
+     "label": "Use_Tcp",
+     "kind": "bool"
+    }
+   ],
+   "input": {
+    "query": "x",
+    "record": "a"
+   },
+   "error": "bad_choice"
+  },
+  {
+   "name": "int above max",
+   "options": [
+    {
+     "key": "record",
+     "label": "Record",
+     "kind": "choice",
+     "choices": [
+      "A",
+      "AAAA",
+      "MX"
+     ],
+     "default": "A"
+    },
+    {
+     "key": "retries",
+     "label": "Retries",
+     "kind": "int",
+     "min": 0,
+     "max": 5
+    },
+    {
+     "key": "query",
+     "label": "Query",
+     "kind": "string",
+     "required": true,
+     "max_len": 8
+    },
+    {
+     "key": "use_tcp",
+     "label": "Use_Tcp",
+     "kind": "bool"
+    }
+   ],
+   "input": {
+    "query": "x",
+    "retries": 6
+   },
+   "error": "out_of_range"
+  },
+  {
+   "name": "int below min",
+   "options": [
+    {
+     "key": "record",
+     "label": "Record",
+     "kind": "choice",
+     "choices": [
+      "A",
+      "AAAA",
+      "MX"
+     ],
+     "default": "A"
+    },
+    {
+     "key": "retries",
+     "label": "Retries",
+     "kind": "int",
+     "min": 0,
+     "max": 5
+    },
+    {
+     "key": "query",
+     "label": "Query",
+     "kind": "string",
+     "required": true,
+     "max_len": 8
+    },
+    {
+     "key": "use_tcp",
+     "label": "Use_Tcp",
+     "kind": "bool"
+    }
+   ],
+   "input": {
+    "query": "x",
+    "retries": -1
+   },
+   "error": "out_of_range"
+  },
+  {
+   "name": "int with fraction",
+   "options": [
+    {
+     "key": "record",
+     "label": "Record",
+     "kind": "choice",
+     "choices": [
+      "A",
+      "AAAA",
+      "MX"
+     ],
+     "default": "A"
+    },
+    {
+     "key": "retries",
+     "label": "Retries",
+     "kind": "int",
+     "min": 0,
+     "max": 5
+    },
+    {
+     "key": "query",
+     "label": "Query",
+     "kind": "string",
+     "required": true,
+     "max_len": 8
+    },
+    {
+     "key": "use_tcp",
+     "label": "Use_Tcp",
+     "kind": "bool"
+    }
+   ],
+   "input": {
+    "query": "x",
+    "retries": 1.5
+   },
+   "error": "wrong_type"
+  },
+  {
+   "name": "int given as text",
+   "options": [
+    {
+     "key": "record",
+     "label": "Record",
+     "kind": "choice",
+     "choices": [
+      "A",
+      "AAAA",
+      "MX"
+     ],
+     "default": "A"
+    },
+    {
+     "key": "retries",
+     "label": "Retries",
+     "kind": "int",
+     "min": 0,
+     "max": 5
+    },
+    {
+     "key": "query",
+     "label": "Query",
+     "kind": "string",
+     "required": true,
+     "max_len": 8
+    },
+    {
+     "key": "use_tcp",
+     "label": "Use_Tcp",
+     "kind": "bool"
+    }
+   ],
+   "input": {
+    "query": "x",
+    "retries": "2"
+   },
+   "error": "wrong_type"
+  },
+  {
+   "name": "bool given as text",
+   "options": [
+    {
+     "key": "record",
+     "label": "Record",
+     "kind": "choice",
+     "choices": [
+      "A",
+      "AAAA",
+      "MX"
+     ],
+     "default": "A"
+    },
+    {
+     "key": "retries",
+     "label": "Retries",
+     "kind": "int",
+     "min": 0,
+     "max": 5
+    },
+    {
+     "key": "query",
+     "label": "Query",
+     "kind": "string",
+     "required": true,
+     "max_len": 8
+    },
+    {
+     "key": "use_tcp",
+     "label": "Use_Tcp",
+     "kind": "bool"
+    }
+   ],
+   "input": {
+    "query": "x",
+    "use_tcp": "yes"
+   },
+   "error": "wrong_type"
+  },
+  {
+   "name": "string given as number",
+   "options": [
+    {
+     "key": "record",
+     "label": "Record",
+     "kind": "choice",
+     "choices": [
+      "A",
+      "AAAA",
+      "MX"
+     ],
+     "default": "A"
+    },
+    {
+     "key": "retries",
+     "label": "Retries",
+     "kind": "int",
+     "min": 0,
+     "max": 5
+    },
+    {
+     "key": "query",
+     "label": "Query",
+     "kind": "string",
+     "required": true,
+     "max_len": 8
+    },
+    {
+     "key": "use_tcp",
+     "label": "Use_Tcp",
+     "kind": "bool"
+    }
+   ],
+   "input": {
+    "query": 5
+   },
+   "error": "wrong_type"
+  },
+  {
+   "name": "string too long",
+   "options": [
+    {
+     "key": "record",
+     "label": "Record",
+     "kind": "choice",
+     "choices": [
+      "A",
+      "AAAA",
+      "MX"
+     ],
+     "default": "A"
+    },
+    {
+     "key": "retries",
+     "label": "Retries",
+     "kind": "int",
+     "min": 0,
+     "max": 5
+    },
+    {
+     "key": "query",
+     "label": "Query",
+     "kind": "string",
+     "required": true,
+     "max_len": 8
+    },
+    {
+     "key": "use_tcp",
+     "label": "Use_Tcp",
+     "kind": "bool"
+    }
+   ],
+   "input": {
+    "query": "123456789"
+   },
+   "error": "too_long"
+  },
+  {
+   "name": "string at limit",
+   "options": [
+    {
+     "key": "record",
+     "label": "Record",
+     "kind": "choice",
+     "choices": [
+      "A",
+      "AAAA",
+      "MX"
+     ],
+     "default": "A"
+    },
+    {
+     "key": "retries",
+     "label": "Retries",
+     "kind": "int",
+     "min": 0,
+     "max": 5
+    },
+    {
+     "key": "query",
+     "label": "Query",
+     "kind": "string",
+     "required": true,
+     "max_len": 8
+    },
+    {
+     "key": "use_tcp",
+     "label": "Use_Tcp",
+     "kind": "bool"
+    }
+   ],
+   "input": {
+    "query": "12345678"
+   },
+   "want": {
+    "query": "12345678",
+    "record": "A"
+   }
+  },
+  {
+   "name": "control character",
+   "options": [
+    {
+     "key": "record",
+     "label": "Record",
+     "kind": "choice",
+     "choices": [
+      "A",
+      "AAAA",
+      "MX"
+     ],
+     "default": "A"
+    },
+    {
+     "key": "retries",
+     "label": "Retries",
+     "kind": "int",
+     "min": 0,
+     "max": 5
+    },
+    {
+     "key": "query",
+     "label": "Query",
+     "kind": "string",
+     "required": true,
+     "max_len": 8
+    },
+    {
+     "key": "use_tcp",
+     "label": "Use_Tcp",
+     "kind": "bool"
+    }
+   ],
+   "input": {
+    "query": "a\u0007b"
+   },
+   "error": "bad_value"
+  },
+  {
+   "name": "no specs, no input",
+   "options": [],
+   "input": {},
+   "want": {}
+  },
+  {
+   "name": "no specs, any input",
+   "options": [],
+   "input": {
+    "a": 1
+   },
+   "error": "unknown_option"
+  }
+ ]
+}

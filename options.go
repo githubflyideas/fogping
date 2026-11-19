@@ -22,6 +22,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"sort"
@@ -44,6 +45,47 @@ const (
 	optChoice = "choice"
 )
 
+// Error codes. They are part of the standard (docs/PROBE-PROTOCOL.md): every
+// implementation reports the same code for the same mistake, and the conformance
+// vectors check codes, not wording.
+const (
+	codeUnknownOption = "unknown_option"
+	codeRequired      = "required"
+	codeWrongType     = "wrong_type"
+	codeOutOfRange    = "out_of_range"
+	codeBadChoice     = "bad_choice"
+	codeTooLong       = "too_long"
+	codeBadValue      = "bad_value"
+	codeTooLarge      = "too_large"
+
+	codeBadProtocol    = "bad_protocol"
+	codeBadType        = "bad_type"
+	codeBadLabel       = "bad_label"
+	codeBadKey         = "bad_key"
+	codeDuplicateKey   = "duplicate_key"
+	codeBadKind        = "bad_kind"
+	codeMissingChoices = "missing_choices"
+	codeBadDefault     = "bad_default"
+	codeTooManyOptions = "too_many_options"
+)
+
+// codedError is an error with a stable code for programs.
+type codedError struct{ code, msg string }
+
+func (e *codedError) Error() string { return e.msg }
+
+func errCode(err error) string {
+	var c *codedError
+	if errors.As(err, &c) {
+		return c.code
+	}
+	return ""
+}
+
+func coded(code, format string, a ...any) error {
+	return &codedError{code: code, msg: fmt.Sprintf(format, a...)}
+}
+
 var optionKeyRe = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
 
 // optionSpec declares one option of a prober. It is sent to the UI as JSON.
@@ -60,38 +102,46 @@ type optionSpec struct {
 	Choices  []string `json:"choices,omitempty"` // choice
 }
 
-// checkSpecs panics on a malformed declaration: that is a bug in the prober, and
-// it must show up when fogping starts, not when someone opens the editor.
-func checkSpecs(prober string, specs []optionSpec) {
+// validateSpecs checks a prober's option declarations.
+func validateSpecs(specs []optionSpec) error {
+	if len(specs) > maxOptions {
+		return coded(codeTooManyOptions, "more than %d options", maxOptions)
+	}
 	seen := map[string]bool{}
 	for _, s := range specs {
-		bad := func(msg string) { panic(fmt.Sprintf("prober %s option %q: %s", prober, s.Key, msg)) }
 		switch {
 		case !optionKeyRe.MatchString(s.Key):
-			bad("key must be lowercase snake_case, at most 32 characters")
+			return coded(codeBadKey, "option %q: key must be lowercase snake_case, at most 32 characters", s.Key)
 		case seen[s.Key]:
-			bad("declared twice")
-		case s.Label == "":
-			bad("needs a label")
+			return coded(codeDuplicateKey, "option %q declared twice", s.Key)
+		case strings.TrimSpace(s.Label) == "":
+			return coded(codeBadLabel, "option %q needs a label", s.Key)
 		}
 		seen[s.Key] = true
 		switch s.Kind {
 		case optString, optInt, optBool:
 		case optChoice:
 			if len(s.Choices) == 0 {
-				bad("choice needs choices")
+				return coded(codeMissingChoices, "option %q: choice needs choices", s.Key)
 			}
 		default:
-			bad("unknown kind " + s.Kind)
+			return coded(codeBadKind, "option %q: unknown kind %q", s.Key, s.Kind)
 		}
 		if s.Default != nil {
 			if _, err := coerceOption(s, s.Default); err != nil {
-				bad("default: " + err.Error())
+				return coded(codeBadDefault, "option %q: default %v", s.Key, err)
 			}
 		}
 	}
-	if len(specs) > maxOptions {
-		panic(fmt.Sprintf("prober %s declares more than %d options", prober, maxOptions))
+	return nil
+}
+
+// checkSpecs panics on a malformed declaration made in Go: that is a bug in the
+// prober, and it must show up when fogping starts, not when someone opens the
+// editor.
+func checkSpecs(prober string, specs []optionSpec) {
+	if err := validateSpecs(specs); err != nil {
+		panic(fmt.Sprintf("prober %s: %v", prober, err))
 	}
 }
 
@@ -102,11 +152,11 @@ func coerceOption(s optionSpec, v any) (any, error) {
 	case optString, optChoice:
 		str, ok := v.(string)
 		if !ok {
-			return nil, fmt.Errorf("must be text")
+			return nil, coded(codeWrongType, "must be text")
 		}
 		str = strings.TrimSpace(str)
 		if strings.ContainsFunc(str, unicode.IsControl) {
-			return nil, fmt.Errorf("must not contain control characters")
+			return nil, coded(codeBadValue, "must not contain control characters")
 		}
 		if s.Kind == optChoice {
 			for _, c := range s.Choices {
@@ -114,14 +164,14 @@ func coerceOption(s optionSpec, v any) (any, error) {
 					return str, nil
 				}
 			}
-			return nil, fmt.Errorf("must be one of %s", strings.Join(s.Choices, "|"))
+			return nil, coded(codeBadChoice, "must be one of %s", strings.Join(s.Choices, "|"))
 		}
 		max := s.MaxLen
 		if max == 0 {
 			max = defaultMaxLen
 		}
 		if utf8.RuneCountInString(str) > max {
-			return nil, fmt.Errorf("must be at most %d characters", max)
+			return nil, coded(codeTooLong, "must be at most %d characters", max)
 		}
 		return str, nil
 	case optInt:
@@ -129,25 +179,25 @@ func coerceOption(s optionSpec, v any) (any, error) {
 		switch x := v.(type) {
 		case float64:
 			if x != float64(int(x)) {
-				return nil, fmt.Errorf("must be a whole number")
+				return nil, coded(codeWrongType, "must be a whole number")
 			}
 			n = int(x)
 		case int:
 			n = x
 		default:
-			return nil, fmt.Errorf("must be a number")
+			return nil, coded(codeWrongType, "must be a number")
 		}
 		if n < s.Min || (s.Max != 0 && n > s.Max) {
 			if s.Max != 0 {
-				return nil, fmt.Errorf("must be %d-%d", s.Min, s.Max)
+				return nil, coded(codeOutOfRange, "must be %d-%d", s.Min, s.Max)
 			}
-			return nil, fmt.Errorf("must be at least %d", s.Min)
+			return nil, coded(codeOutOfRange, "must be at least %d", s.Min)
 		}
 		return n, nil
 	case optBool:
 		b, ok := v.(bool)
 		if !ok {
-			return nil, fmt.Errorf("must be true or false")
+			return nil, coded(codeWrongType, "must be true or false")
 		}
 		return b, nil
 	}
@@ -181,24 +231,27 @@ func normalizeOptions(p *prober, t *TargetCfg) error {
 		if len(keys) > 0 {
 			have = "options of " + p.name + ": " + strings.Join(keys, ", ")
 		}
-		return fmt.Errorf("unknown option %q (%s)", unknown[0], have)
+		return coded(codeUnknownOption, "unknown option %q (%s)", unknown[0], have)
 	}
 	out := map[string]any{}
 	for _, s := range p.options {
 		v, given := t.Options[s.Key]
+		if str, isStr := v.(string); isStr {
+			v = strings.TrimSpace(str) // blank text counts as missing
+		}
 		if !given || v == nil || v == "" {
 			switch {
 			case s.Default != nil:
 				v = s.Default
 			case s.Required:
-				return fmt.Errorf("option %q is required", s.Key)
+				return coded(codeRequired, "option %q is required", s.Key)
 			default:
 				continue
 			}
 		}
 		c, err := coerceOption(s, v)
 		if err != nil {
-			return fmt.Errorf("option %q %v", s.Key, err)
+			return coded(errCode(err), "option %q %v", s.Key, err)
 		}
 		out[s.Key] = c
 	}
@@ -207,7 +260,7 @@ func normalizeOptions(p *prober, t *TargetCfg) error {
 		return nil
 	}
 	if b, _ := json.Marshal(out); len(b) > maxOptionBytes {
-		return fmt.Errorf("options are too large (at most %d bytes)", maxOptionBytes)
+		return coded(codeTooLarge, "options are too large (at most %d bytes)", maxOptionBytes)
 	}
 	t.Options = out
 	return nil

@@ -1,4 +1,8 @@
-# Prober options
+# Prober options (writing a prober in Go)
+
+> The language-neutral standard — manifest, validation rules, error codes and
+> test vectors — is [PROBE-PROTOCOL.md](PROBE-PROTOCOL.md). This page is the Go
+> route to the same thing.
 
 A prober is one way of measuring a target. Every target has the same core fields
 (`name`, `host`, `port`, `pace`, `interval_sec`); anything else a prober needs —
