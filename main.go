@@ -24,6 +24,8 @@ func main() {
 	showVer := flag.Bool("version", false, "print version")
 	zabbix := flag.Bool("zabbix", false, "serve a read-only GET /api/stats for the Zabbix template (needs FOGPING_ZABBIX_TOKEN)")
 	probes := flag.Bool("probes", false, "load external probers from ./probes (see docs/PROBE-PROTOCOL.md)")
+	check := flag.Bool("check", false, "check the configuration and this machine, report, and exit without starting")
+	genTokenPath := flag.String("gen-token", "", "write a new random Zabbix token to this file (owner-only) and exit")
 	args := os.Args[1:]
 	for _, a := range args {
 		if a == "help" { // `fogping help` would otherwise be rejected as a bad auth arg
@@ -50,47 +52,42 @@ func main() {
 		return
 	}
 
-	cfg := defaultConfig()
-	if cfg.RetentionDays, err = retentionDays(*days); err != nil {
-		fmt.Fprintf(os.Stderr, "fogping: %v\nRun './fogping --help' for examples.\n", err)
-		os.Exit(2)
+	if *genTokenPath != "" {
+		if err := genToken(os.Stdout, *genTokenPath); err != nil {
+			fmt.Fprintf(os.Stderr, "fogping: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	}
-	statsToken, kvArgs, tokenIgnored, err := resolveZabbixToken(*zabbix, append(authArgs, flag.Args()...), os.Getenv)
-	if err != nil {
-		log.Fatalf("%v\nRun './fogping --help' for examples.", err)
+
+	st, problems := prepare(startFlags{days: *days, localOnly: *localOnly, edit: *edit, zabbix: *zabbix, probe: *probes},
+		append(authArgs, flag.Args()...), os.Getenv)
+	if *check {
+		os.Exit(runCheck(os.Stdout, st, problems))
 	}
-	users, cliPasswd, err := resolveAuth(kvArgs, os.Getenv)
-	if err != nil {
-		log.Fatalf("%v\nRun './fogping --help' for examples.", err)
+	if len(problems) > 0 {
+		// Every refusal stands. They are only listed together, so one restart fixes all.
+		for _, p := range problems {
+			log.Printf("ERROR: %v", p)
+		}
+		log.Fatalf("fogping did not start: %d problem(s) above. './fogping --check' reports on the whole setup without starting.", len(problems))
 	}
+	cfg, users := st.cfg, st.users
 	// The variables have done their job; do not hand them to anything this
 	// process might start.
 	os.Unsetenv("FOGPING_PASSWD")
 	os.Unsetenv("FOGPING_ZABBIX_TOKEN")
-	if tokenIgnored {
+	if st.tokenIgnored {
 		log.Printf("note: a Zabbix token is set but --zabbix was not given; the Zabbix stats API stays off")
 	}
-	if cliPasswd {
+	if st.cliPasswd {
 		log.Printf("WARNING: passwd= on the command line is visible to every account on this machine (ps, /proc) " +
 			"and lands in shell history. Prefer FOGPING_PASSWD=... in the environment or passwd-file=PATH.")
 	}
-	if *localOnly {
-		cfg.Listen = "127.0.0.1" + portOf(cfg.Listen)
-	}
-	cfg.Editable = *edit
-	cfg.StatsToken = statsToken
-	if statsToken != "" {
-		log.Printf("zabbix: on — read-only GET /api/stats for the Zabbix template")
-	}
-	// An open, writable UI would let anyone who can reach the port make this host
-	// ping or TCP-connect to arbitrary addresses. Refuse to start rather than warn:
-	// this is a security rule, and nothing may fall back to an open, editable console.
-	if err := checkEditAllowed(cfg.Editable, len(users) > 0, *localOnly); err != nil {
-		log.Fatalf("%v", err)
-	}
 
+	var probesLoaded []string
 	if *probes {
-		loadProbes(probesDir)
+		probesLoaded = loadProbes(probesDir)
 	}
 	store, err := NewStore(cfg.DataDir, nil)
 	if err != nil {
@@ -124,12 +121,14 @@ func main() {
 	if len(run.Targets()) == 0 {
 		log.Printf("no active targets — restart with --edit and add them in the web UI")
 	}
-	log.Printf("➜  open http://localhost%s for the smoke graph", portOf(cfg.Listen))
-	if len(users) == 0 {
-		log.Printf("tip: web UI is open; protect it with  ./fogping user=u1,u2 passwd=p1,p2  or --localhost + reverse proxy")
-	} else {
-		log.Printf("web login enabled for %d user(s)", len(users))
+	log.Printf("security summary (lines marked ! deserve a look):")
+	for _, l := range securitySummary(st, probesLoaded) {
+		log.Printf("  %s", l)
 	}
+	if len(users) == 0 && !st.localOnly {
+		log.Printf("tip: protect the web UI with  ./fogping user=u1,u2 passwd=p1,p2  or --localhost + reverse proxy")
+	}
+	log.Printf("➜  open http://localhost%s for the smoke graph", portOf(cfg.Listen))
 
 	go func() {
 		if err := serveWeb(cfg, store, run, users); err != nil {

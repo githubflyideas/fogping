@@ -121,48 +121,9 @@ func untrusted(fi os.FileInfo) string {
 }
 
 func loadProbe(dir string) (string, error) {
-	if fi, err := os.Lstat(dir); err != nil {
-		return "", err
-	} else if why := untrusted(fi); why != "" {
-		return "", fmt.Errorf("the directory is %s", why)
-	}
-	mpath := filepath.Join(dir, manifestFile)
-	fi, err := os.Lstat(mpath)
-	if err != nil {
-		return "", fmt.Errorf("no %s", manifestFile)
-	}
-	if !fi.Mode().IsRegular() || fi.Size() > maxManifestBytes {
-		return "", fmt.Errorf("%s must be a regular file of at most %d bytes", manifestFile, maxManifestBytes)
-	}
-	raw, err := os.ReadFile(mpath)
+	m, exe, err := inspectProbe(dir)
 	if err != nil {
 		return "", err
-	}
-	m, err := parseManifest(raw)
-	if err != nil {
-		return "", fmt.Errorf("%s: %w", manifestFile, err)
-	}
-	if _, taken := proberFor(m.Type); taken {
-		return "", fmt.Errorf("type %q is already taken", m.Type)
-	}
-	// The plugin's directory name must match its type, so what is on disk is what
-	// the UI shows and nothing can be registered under a surprising name.
-	if base := filepath.Base(dir); base != m.Type {
-		return "", fmt.Errorf("directory is named %q but the manifest's type is %q", base, m.Type)
-	}
-	exe, err := filepath.Abs(filepath.Join(dir, probeExecutable))
-	if err != nil {
-		return "", err
-	}
-	efi, err := os.Lstat(exe)
-	if err != nil {
-		return "", fmt.Errorf("no executable file named %q", probeExecutable)
-	}
-	if !efi.Mode().IsRegular() || efi.Mode().Perm()&0o111 == 0 {
-		return "", fmt.Errorf("%q must be a regular file with the execute bit set", probeExecutable)
-	}
-	if why := untrusted(efi); why != "" {
-		return "", fmt.Errorf("%q is %s", probeExecutable, why)
 	}
 	workdir, err := emptyWorkdir()
 	if err != nil {
@@ -188,6 +149,56 @@ func loadProbe(dir string) (string, error) {
 		return "", err // refused: the caller logs it and skips this plugin
 	}
 	return m.Type, nil
+}
+
+// inspectProbe applies every rule a plugin directory must meet and returns its
+// manifest and the absolute path of its executable, without registering anything.
+// loadProbe uses it to load a plugin; --check uses it to report on one.
+func inspectProbe(dir string) (*Manifest, string, error) {
+	if fi, err := os.Lstat(dir); err != nil {
+		return nil, "", err
+	} else if why := untrusted(fi); why != "" {
+		return nil, "", fmt.Errorf("the directory is %s", why)
+	}
+	mpath := filepath.Join(dir, manifestFile)
+	fi, err := os.Lstat(mpath)
+	if err != nil {
+		return nil, "", fmt.Errorf("no %s", manifestFile)
+	}
+	if !fi.Mode().IsRegular() || fi.Size() > maxManifestBytes {
+		return nil, "", fmt.Errorf("%s must be a regular file of at most %d bytes", manifestFile, maxManifestBytes)
+	}
+	raw, err := os.ReadFile(mpath)
+	if err != nil {
+		return nil, "", err
+	}
+	m, err := parseManifest(raw)
+	if err != nil {
+		return nil, "", fmt.Errorf("%s: %w", manifestFile, err)
+	}
+	if _, taken := proberFor(m.Type); taken {
+		return nil, "", fmt.Errorf("type %q is already taken", m.Type)
+	}
+	// The plugin's directory name must match its type, so what is on disk is what
+	// the UI shows and nothing can be registered under a surprising name.
+	if base := filepath.Base(dir); base != m.Type {
+		return nil, "", fmt.Errorf("directory is named %q but the manifest's type is %q", base, m.Type)
+	}
+	exe, err := filepath.Abs(filepath.Join(dir, probeExecutable))
+	if err != nil {
+		return nil, "", err
+	}
+	efi, err := os.Lstat(exe)
+	if err != nil {
+		return nil, "", fmt.Errorf("no executable file named %q", probeExecutable)
+	}
+	if !efi.Mode().IsRegular() || efi.Mode().Perm()&0o111 == 0 {
+		return nil, "", fmt.Errorf("%q must be a regular file with the execute bit set", probeExecutable)
+	}
+	if why := untrusted(efi); why != "" {
+		return nil, "", fmt.Errorf("%q is %s", probeExecutable, why)
+	}
+	return m, exe, nil
 }
 
 type probeRequest struct {

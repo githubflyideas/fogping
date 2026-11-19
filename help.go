@@ -69,6 +69,9 @@ FLAGS
   --version       print the version and exit
   --probes        load external probers from ./probes (docs/PROBE-PROTOCOL.md); off by default
   --zabbix        serve read-only stats to the Zabbix template (needs a token, see below)
+  --check         check flags, login, tokens, data directory, database, port and
+                  plugins; print a report and exit without starting anything
+  --gen-token=F   write a new random token to file F (owner-only, never printed)
   user=  passwd=  turn on the login page (comma-separated lists)
   passwd-file=F   read the passwords from file F instead, one per line
 
@@ -84,6 +87,11 @@ FLAGS
   Optional: --zabbix with FOGPING_ZABBIX_TOKEN (or FOGPING_ZABBIX_TOKEN_FILE,
   zabbix-token-file=F) serves a read-only GET /api/stats for the Zabbix
   template in zabbix/ of the repository. Without --zabbix nothing changes.
+  Make the token with:   ./fogping --gen-token=/etc/fogping/zabbix.token
+  then start with:       FOGPING_ZABBIX_TOKEN_FILE=/etc/fogping/zabbix.token ./fogping --zabbix
+
+  Before restarting a service, ./fogping --check (with the same flags) says
+  whether it would start, and why not, without touching the running one.
 
 Full guide, systemd unit, reverse proxy: https://github.com/githubflyideas/fogping
 `
