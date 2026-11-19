@@ -3,12 +3,10 @@ package main
 import (
 	"bufio"
 	"context"
+	"io"
 	"net"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -78,22 +76,57 @@ func listenTCP(t *testing.T, handle func(net.Conn)) int {
 	return ln.Addr().(*net.TCPAddr).Port
 }
 
-func TestPluginHTTP(t *testing.T) {
-	installPlugin(t, "http", "go", "make")
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
-	defer srv.Close()
-	host, ps, _ := net.SplitHostPort(srv.Listener.Addr().String())
-	port, _ := strconv.Atoi(ps)
-	wantAllReceived(t, "http", pluginRound(t, "http", host, port, map[string]any{"scheme": "http"}))
-	// Only an HTTPS URL with a valid certificate may succeed: the test server's own
-	// certificate is not trusted, so every probe is lost, not accepted.
-	tls := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-	defer tls.Close()
-	host, ps, _ = net.SplitHostPort(tls.Listener.Addr().String())
-	port, _ = strconv.Atoi(ps)
-	if r := pluginRound(t, "http", host, port, nil); r.R != 0 {
-		t.Fatalf("an untrusted certificate was accepted: %+v", r)
+// readBER reads one complete LDAP message (a BER SEQUENCE) and returns its message
+// ID and the tag of the protocol operation inside it.
+func readBER(c net.Conn) (id, op byte, err error) {
+	r := bufio.NewReader(c)
+	if _, err = r.ReadByte(); err != nil { // 0x30: SEQUENCE
+		return
 	}
+	n, err := r.ReadByte()
+	if err != nil {
+		return
+	}
+	length := int(n)
+	if n&0x80 != 0 { // long form: the next n&0x7f bytes hold the length
+		length = 0
+		for i := 0; i < int(n&0x7f); i++ {
+			b, e := r.ReadByte()
+			if e != nil {
+				return 0, 0, e
+			}
+			length = length<<8 | int(b)
+		}
+	}
+	body := make([]byte, length)
+	if _, err = io.ReadFull(r, body); err != nil {
+		return
+	}
+	// body: 02 01 <id> <op tag> ...  (message IDs below 128 only, which is all a
+	// short-lived probe connection ever uses)
+	return body[2], body[3], nil
+}
+
+func TestPluginLDAP(t *testing.T) {
+	installPlugin(t, "ldap", "go", "make")
+	port := listenTCP(t, func(c net.Conn) {
+		for {
+			id, op, err := readBER(c)
+			if err != nil {
+				return
+			}
+			switch op {
+			case 0x60: // bind request -> bind response, success
+				c.Write([]byte{0x30, 0x0c, 0x02, 0x01, id, 0x61, 0x07, 0x0a, 0x01, 0x00, 0x04, 0x00, 0x04, 0x00})
+			case 0x63: // search request -> one empty entry, then search done
+				c.Write([]byte{0x30, 0x09, 0x02, 0x01, id, 0x64, 0x04, 0x04, 0x00, 0x30, 0x00})
+				c.Write([]byte{0x30, 0x0c, 0x02, 0x01, id, 0x65, 0x07, 0x0a, 0x01, 0x00, 0x04, 0x00, 0x04, 0x00})
+			case 0x42: // unbind
+				return
+			}
+		}
+	})
+	wantAllReceived(t, "ldap", pluginRound(t, "ldap", "127.0.0.1", port, nil))
 }
 
 func TestPluginDNS(t *testing.T) {

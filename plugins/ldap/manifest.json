@@ -1,0 +1,12 @@
+{
+  "protocol": "fogping-probe/1",
+  "type": "ldap",
+  "label": "LDAP",
+  "uses_port": true,
+  "options": [
+    {"key": "security", "label": "Security", "kind": "choice", "choices": ["none", "starttls", "ldaps"], "default": "none",
+     "help": "none: port 389. starttls: port 389, upgraded to TLS. ldaps: port 636, TLS from the first byte. Certificates are always verified."},
+    {"key": "stage", "label": "Measure until", "kind": "choice", "choices": ["connect", "bind", "rootdse"], "default": "rootdse",
+     "help": "connect: TCP and TLS only. bind: also an anonymous bind. rootdse: also reading the server's root DSE, which proves the directory is answering queries."}
+  ]
+}

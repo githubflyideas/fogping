@@ -28,8 +28,8 @@
         },
         "type": {
           "type": "string",
-          "pattern": "^\\s*([Pp][Ii][Nn][Gg]|[Ii][Cc][Mm][Pp]|[Tt][Cc][Pp])\\s*$",
-          "description": "ping | tcp (icmp accepted as a synonym for ping; case-insensitive)"
+          "pattern": "^\\s*([Pp][Ii][Nn][Gg]|[Ii][Cc][Mm][Pp]|[Tt][Cc][Pp]|[Hh][Tt][Tt][Pp])\\s*$",
+          "description": "ping | tcp | http (icmp accepted as a synonym for ping; case-insensitive)"
         },
         "host": {
           "type": "string",
@@ -37,13 +37,13 @@
           "maxLength": 253,
           "pattern": "^\\s*\\S+\\s*$"
         },
-        "port": { "type": "integer", "minimum": 0, "maximum": 65535, "description": "Required (1-65535) for tcp; ignored for ping." },
+        "port": { "type": "integer", "minimum": 0, "maximum": 65535, "description": "Required (1-65535) for tcp and http; ignored for ping." },
         "pace": { "enum": ["fast", "normal", "slow", ""], "default": "normal" },
-        "options": { "type": "object", "description": "fogping only: settings of a prober beyond the core fields (see OPTIONS.md). Other readers ignore it." },
+        "options": { "type": "object", "description": "Settings of a type beyond the core fields; today only http takes any (see targets-format.md)." },
         "interval": { "type": "integer", "minimum": 0, "maximum": 86400, "description": "Seconds; 0 or absent = use pace." }
       },
       "if": {
-        "properties": { "type": { "pattern": "^\\s*[Tt][Cc][Pp]\\s*$" } }
+        "properties": { "type": { "pattern": "^\\s*([Tt][Cc][Pp]|[Hh][Tt][Tt][Pp])\\s*$" } }
       },
       "then": {
         "required": ["port"],

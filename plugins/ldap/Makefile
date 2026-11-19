@@ -1,6 +1,6 @@
 # `make` builds the executable fogping runs. It must be called `probe`.
-# No dependencies: the standard library is enough, so this builds offline.
-probe: main.go
+# The one dependency is the LDAP client library; `go.sum` pins its exact version.
+probe: main.go go.mod go.sum
 	CGO_ENABLED=0 go build -trimpath -o probe .
 
 test:

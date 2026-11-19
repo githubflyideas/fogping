@@ -2,13 +2,15 @@
 
 fogping measures a target with a **prober**. ICMP ping and TCP connect are built
 in. Everything else is a small program, in any language, that fogping runs once per
-round. This directory holds five of them. They are real: you can run them against
+round. (HTTP is built in too: see [`httpprobe.go`](../httpprobe.go), the same idea
+compiled into fogping, pingping and vrf-ping.) This directory holds five official
+ones. They are real: you can run them against
 production, and each one is also written to be read, with the comments saying
 *why*, not just *what*.
 
 | Prober | Measures | Language | What reading it teaches |
 |---|---|---|---|
-| [`http`](http/README.md) | time to first byte of an HTTP(S) request | **Go** | the protocol end to end; building URLs safely; why connection reuse would corrupt a measurement |
+| [`ldap`](ldap/README.md) | an LDAP directory: connect, bind, root DSE, with TLS | **Go** | the protocol end to end; testing a binary protocol with a fake server; one deadline for a multi-step probe |
 | [`dns`](dns/README.md) | latency of a DNS server | **Python** | a binary wire format built by hand; ignoring forged replies; one deadline per probe |
 | [`smtp`](smtp/README.md) | mail server greeting and EHLO, with TLS | **Ruby** | a line protocol with multi-line replies; never reading without a bound; verifying certificates |
 | [`ssh`](ssh/README.md) | time for an SSH server to greet | **Bash** | the one rule of shell: input never becomes code |
@@ -17,7 +19,7 @@ production, and each one is also written to be read, with the comments saying
 ## Use them
 
 ```sh
-plugins/install.sh http dns smtp ssh traceroute     # or: plugins/install.sh all
+plugins/install.sh ldap dns smtp ssh traceroute     # or: plugins/install.sh all
 ./fogping --probes --edit --localhost               # probes are off unless you say so
 ```
 
@@ -25,7 +27,7 @@ plugins/install.sh http dns smtp ssh traceroute     # or: plugins/install.sh all
 new type in the type menu, and fill in its own options. The form is built from the
 prober's manifest, so there is nothing to configure in fogping itself.
 
-Needs: Go for `http`, Python 3 for `dns`, Ruby for `smtp`, Bash 5 and GNU
+Needs: Go for `ldap`, Python 3 for `dns`, Ruby for `smtp`, Bash 5 and GNU
 coreutils for `ssh`, Rust (cargo) for `traceroute` (Linux). Only the compiled ones
 are built at install time.
 

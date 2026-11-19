@@ -177,4 +177,5 @@ func init() {
 			return tcpRound(ctx, t.Host, t.Port, packets, gap, timeout)
 		},
 	})
+	registerHTTP()
 }

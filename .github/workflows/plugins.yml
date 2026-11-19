@@ -23,8 +23,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with: { go-version-file: go.mod }
-      - name: http (Go)
-        run: make -C plugins/http test
+      - name: ldap (Go)
+        run: make -C plugins/ldap test
       - name: dns (Python)
         run: cd plugins/dns && python3 -m unittest test_probe.py
       - name: smtp (Ruby)

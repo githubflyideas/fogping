@@ -39,15 +39,27 @@ later version can add optional fields without breaking older readers.
 
 | Field | Required | Meaning |
 |---|---|---|
-| `type` | yes | `"ping"` (ICMP echo) or `"tcp"` (time to complete a TCP connect). `"icmp"` is accepted as a synonym for `"ping"` on import; export always writes `"ping"`. Case-insensitive. |
+| `type` | yes | `"ping"` (ICMP echo), `"tcp"` (time to complete a TCP connect) or `"http"` (time to the first byte of an HTTP(S) request). `"icmp"` is accepted as a synonym for `"ping"` on import; export always writes `"ping"`. Case-insensitive. |
 | `host` | yes | Hostname, IPv4 or IPv6 address. No spaces, at most 253 characters. Hostnames are resolved every round. |
-| `port` | tcp only | 1-65535. Ignored for `ping`. |
+| `port` | tcp and http | 1-65535. Ignored for `ping`. |
 | `name` | no | What the chart shows. At most 64 printable characters, unique within one installation. Empty means the address: `host` for ping, `host:port` for tcp. |
 | `pace` | no | `"fast"` (every 15 s), `"normal"` (60 s, the default) or `"slow"` (300 s). |
 | `interval` | no | Seconds between rounds, 1-86400, overriding the pace. `0` or absent means "use the pace". |
 
-`options` (fogping only) is an optional object of settings that a prober beyond
-`ping` and `tcp` defines; see [OPTIONS.md](OPTIONS.md). pingping ignores it.
+`options` is an object of settings that only some types take. Today that is `http`:
+
+| Option | Values |
+|---|---|
+| `scheme` | `"https"` (default, certificate verified) or `"http"` |
+| `method` | `"GET"` (default) or `"HEAD"` |
+| `path` | starts with `/`, default `/`; a query string is allowed |
+| `host_header` | optional Host header, for several sites on one address |
+| `expect_status` | `0` (default: any status below 400 is up) or an exact status 100-599 |
+| `follow_redirects` | `false` (default) or `true` (at most 5) |
+
+Unknown option names are refused for that row, so a typo is an error and not a
+silently ignored setting. `ping` and `tcp` take no options. fogping also lists the
+options of probers loaded with `--probes`; see [OPTIONS.md](OPTIONS.md).
 
 Every row goes through exactly the validation the web editor uses, so an import
 cannot create a target the editor could not.

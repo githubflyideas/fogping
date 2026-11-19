@@ -30,10 +30,10 @@ func TestNoCodeOutsideTheRegistryKnowsTheTypes(t *testing.T) {
 }
 
 func TestBuiltInProbers(t *testing.T) {
-	if got := proberNames(false); got != "icmp|tcp" {
+	if got := proberNames(false); got != "http|icmp|tcp" {
 		t.Errorf("names = %q", got)
 	}
-	if got := proberNames(true); got != "ping|tcp" {
+	if got := proberNames(true); got != "http|ping|tcp" {
 		t.Errorf("file names = %q", got)
 	}
 	for in, want := range map[string]string{"ping": "icmp", "ICMP": "icmp", " tcp ": "tcp"} {
