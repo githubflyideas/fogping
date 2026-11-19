@@ -116,6 +116,13 @@ func newMux(cfg *Config, store *Store, run *Runner, users map[string]string) htt
 	// login: constant-time compare, 1s delay on failure, and a per-address lockout
 	// after repeated failures (see loginthrottle.go).
 	mux.HandleFunc("POST /api/login", func(w http.ResponseWriter, r *http.Request) {
+		// Before the throttle: this refuses a request that carries no credentials at
+		// all, so it must not take the address's one login slot (begin) or count as
+		// a guess.
+		if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt != "application/json" {
+			jsonErr(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
+			return
+		}
 		key := loginClientKey(r)
 		if wait, ok := throttle.begin(key); !ok {
 			w.Header().Set("Retry-After", retryAfter(wait))
@@ -123,7 +130,16 @@ func newMux(cfg *Config, store *Store, run *Runner, users map[string]string) htt
 			return
 		}
 		var body struct{ User, Pass string }
-		json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&body)
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&body); err != nil {
+			var tooBig *http.MaxBytesError
+			if errors.As(err, &tooBig) {
+				throttle.fail(key) // release the slot taken by begin; junk of this size is abuse, so it counts
+				jsonErr(w, http.StatusRequestEntityTooLarge, "request body is too large")
+				return
+			}
+			// Anything else unreadable falls through as an empty login and fails
+			// like a wrong password, so the throttle counts it.
+		}
 		want, ok := users[body.User]
 		if len(users) == 0 || !ok ||
 			subtle.ConstantTimeCompare([]byte(body.Pass), []byte(want)) != 1 {
@@ -251,6 +267,11 @@ func newMux(cfg *Config, store *Store, run *Runner, users map[string]string) htt
 		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(&t); err != nil {
+			var tooBig *http.MaxBytesError
+			if errors.As(err, &tooBig) {
+				jsonErr(w, http.StatusRequestEntityTooLarge, "request body is too large")
+				return t, false
+			}
 			msg := "bad JSON: " + err.Error()
 			if f, ok := strings.CutPrefix(err.Error(), "json: unknown field "); ok {
 				msg = "unknown field " + f + "; accepted fields: id, name, type, host, port, pace, interval_sec, options"

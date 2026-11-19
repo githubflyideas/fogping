@@ -52,7 +52,7 @@
 const $ = id => document.getElementById(id);
 async function login() {
   $('err').textContent = '';
-  const res = await fetch('/api/login', { method:'POST',
+  const res = await fetch('/api/login', { method:'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ user: $('user').value, pass: $('pass').value }) });
   if (res.ok) location.href = '/';
   else if (res.status === 429) {

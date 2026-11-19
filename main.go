@@ -96,7 +96,11 @@ func main() {
 		log.Fatalf("store init failed: %v", err)
 	}
 	if n, err := store.TargetRows(); err == nil && n == 0 {
-		if _, err := store.CreateTarget(demoTarget); err == nil {
+		if _, err := store.CreateTarget(demoTarget); err != nil {
+			// Not fatal (the user can add targets themselves) but never silent: an
+			// empty first screen with no explanation looks like a broken install.
+			log.Printf("WARNING: could not seed the demo target: %v", err)
+		} else {
 			log.Printf("new database — seeded a demo target (www.google.com)")
 		}
 	}

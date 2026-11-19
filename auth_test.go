@@ -26,6 +26,9 @@ func authTestMux(t *testing.T) http.Handler {
 
 func authDo(h http.Handler, method, path, body, cookie, remote string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, "http://fp.local"+path, strings.NewReader(body))
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	if remote != "" {
 		req.RemoteAddr = remote
 	}

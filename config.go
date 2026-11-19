@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -87,7 +88,7 @@ func normalizeTarget(t *TargetCfg) error {
 	if err := p.validate(t); err != nil {
 		return err
 	}
-	if t.Host == "" || len(t.Host) > 253 || strings.ContainsFunc(t.Host, unicode.IsSpace) {
+	if t.Host == "" || len(t.Host) > 253 || strings.ContainsFunc(t.Host, unicode.IsSpace) || numericButNotIP(t.Host) {
 		return fmt.Errorf("invalid host %q", t.Host)
 	}
 	switch t.Pace {
@@ -107,4 +108,17 @@ func normalizeTarget(t *TargetCfg) error {
 		return fmt.Errorf("name must be at most 64 printable characters")
 	}
 	return nil
+}
+
+// numericButNotIP catches an address typed wrongly, such as 999.999.999.999: made
+// only of digits and dots, so it is meant as an IPv4 address, but it is not one.
+// Left alone it would be taken for a host NAME and shown as 100% loss. No real
+// host name is all digits (RFC 3696 forbids an all-numeric top label).
+func numericButNotIP(h string) bool {
+	for _, r := range h {
+		if r != '.' && (r < '0' || r > '9') {
+			return false
+		}
+	}
+	return net.ParseIP(h) == nil
 }
