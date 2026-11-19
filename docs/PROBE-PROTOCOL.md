@@ -5,9 +5,10 @@ compiled into fogping, or Python, Ruby, a shell script or Rust run as a separate
 program. Everything here is language-neutral JSON. The Go code in fogping is one
 implementation of it, not the definition of it.
 
-This document covers **what a prober declares and how its settings are
-validated**. How fogping starts a prober and exchanges rounds with it is the next
-part of the protocol and is not in this version of the document.
+This document covers **what a prober declares, how its settings are validated,
+and how fogping judges what it answers** (sections 1-7). How fogping starts a
+prober and what it asks it is a draft (section 8): written down so authors can
+see the direction, not yet implemented.
 
 Three files define the standard:
 
@@ -145,3 +146,55 @@ another language should run them the same way. To add a rule, add vectors first.
 Inside fogping a prober registers with `registerProber` and its `options` are the
 same specs, Go struct tags matching the JSON above. [OPTIONS.md](OPTIONS.md) is
 the short guide for that route.
+
+## 7. What a prober answers for one round
+
+A prober's answer is **untrusted input**, because the prober may be someone
+else's program. fogping accepts it only if all of this holds, and otherwise
+discards the round and records a probe failure.
+
+One JSON object, at most 64 KB, nothing after it. Either a measurement:
+
+```json
+{"protocol": "fogping-probe/1", "sent": 10, "received": 9, "ms": [12.1, 12.4, 11.9, 12.0, 13.2, 12.2, 12.5, 12.3, 12.8]}
+```
+
+or the prober's own failure to measure at all:
+
+```json
+{"protocol": "fogping-probe/1", "error": "dns: no such host"}
+```
+
+| Rule | Code |
+|---|---|
+| `protocol` is exactly `fogping-probe/1` | `bad_protocol` |
+| a JSON object, within 64 KB, one value only, `sent`/`received`/`ms` present together and of the right JSON types (counts are whole numbers, `ms` a list of numbers) | `bad_result` |
+| exactly one of {`sent`, `received`, `ms`} or `error`: not both, not neither | `ambiguous` |
+| `error` has text after trimming | `bad_error` |
+| `1 <= sent <= packets` (the number fogping asked for) and `0 <= received <= sent` | `bad_counts` |
+| `ms` has exactly `received` entries, each a finite number from 0 to 600000 | `bad_samples` |
+
+An `error` answer is valid: it is stored as a round that could not be measured
+(the same as a built-in probe failure: not loss, left out of every statistic).
+Its text is cleaned to one line and cut at 200 characters. Unknown fields are
+ignored. The vectors are [`conformance/round.json`](conformance/round.json).
+
+A prober that returns fewer probes than asked (`sent` < `packets`) is allowed;
+more is not. Lost probes are not listed in `ms`.
+
+## 8. Invocation (draft, not yet implemented)
+
+For a prober that is its own program, fogping runs it **once per round**:
+
+- Request: one JSON object on standard input,
+  `{"protocol", "type", "host", "port", "packets", "gap_ms", "timeout_ms", "options"}`.
+  `options` is the canonical object of section 2. **Nothing is passed on the
+  command line or in the environment**, so a value can never become part of a
+  shell command line, and another account cannot read it in `ps`.
+- Answer: one JSON object on standard output (section 7). Standard error is
+  logged, truncated, and never interpreted.
+- Deadline: fogping allows `packets * (gap_ms + timeout_ms)` plus a fixed margin,
+  then kills the process. A killed or non-zero-exit prober is a probe failure.
+- Limits: output beyond 64 KB is cut and the round fails; the process runs with
+  an empty environment and in an empty working directory.
+

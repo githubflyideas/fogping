@@ -90,3 +90,35 @@ func TestBuiltinsAreValidManifests(t *testing.T) {
 		}
 	}
 }
+
+func TestConformanceRoundResults(t *testing.T) {
+	type vec struct {
+		Name    string          `json:"name"`
+		Packets int             `json:"packets"`
+		Result  json.RawMessage `json:"result"`
+		Want    *struct {
+			S  int       `json:"s"`
+			R  int       `json:"r"`
+			MS []float64 `json:"ms"`
+			E  string    `json:"e"`
+		} `json:"want"`
+		Error string `json:"error"`
+	}
+	for _, v := range loadVectors[vec](t, "round.json") {
+		r, err := parseRoundResult(v.Result, 100, v.Packets)
+		if v.Error != "" {
+			if got := errCode(err); got != v.Error {
+				t.Errorf("%s: code %q (%v), want %q", v.Name, got, err, v.Error)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("%s: %v", v.Name, err)
+			continue
+		}
+		if r.T != 100 || r.S != v.Want.S || r.R != v.Want.R || r.E != v.Want.E ||
+			!reflect.DeepEqual(append([]float64{}, r.MS...), append([]float64{}, v.Want.MS...)) {
+			t.Errorf("%s: got %+v, want %+v", v.Name, r, *v.Want)
+		}
+	}
+}
