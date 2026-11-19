@@ -28,7 +28,11 @@ for name in "${names[@]}"; do
     make -C "$src" >&2
   fi
   [[ -x $src/probe ]] || { echo "$name: no executable 'probe' (did the build fail?)" >&2; exit 1; }
+  # fogping refuses a probers directory that group or others can write to (whoever
+  # can write there can run code as fogping), so do not inherit a loose umask.
+  [[ -d $dest ]] || { mkdir -p "$dest"; chmod 0755 "$dest"; }
   mkdir -p "$dest/$name"
+  chmod 0755 "$dest/$name"
   # `install` sets the mode explicitly: fogping refuses a probe file that is
   # writable by anyone but its owner.
   install -m 0644 "$src/manifest.json" "$dest/$name/manifest.json"

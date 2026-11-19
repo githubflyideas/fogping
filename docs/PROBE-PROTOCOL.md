@@ -202,6 +202,14 @@ from `type`, a `type` already taken (a built-in cannot be replaced), `probe`
 missing, not a regular file, without the execute bit, or writable by group or
 others.
 
+**Trust.** A prober is a program that runs with the same privileges as fogping, on
+every round. fogping limits what it can cost (the deadline, the output cap, at most
+8 at once, an empty environment) but it does not sandbox it: a prober can read the
+files and reach the network that the fogping account can. Install only probers you
+trust, and run fogping as an ordinary account, never as root. To keep a stranger
+from planting one, fogping refuses a `probes/` directory, a prober directory or a
+`probe` file that group or others can write to, or that another account owns.
+
 **One process per round.**
 
 - Request: one JSON object on standard input,

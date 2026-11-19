@@ -80,6 +80,8 @@ func TestHTTPInputIsJudgedStrictly(t *testing.T) {
 		"path no slash":   {Type: typeHTTP, Host: "example.org", Port: 443, Options: map[string]any{"path": "nope"}},
 		"bad scheme":      {Type: typeHTTP, Host: "example.org", Port: 443, Options: map[string]any{"scheme": "ftp"}},
 		"bad host_header": {Type: typeHTTP, Host: "example.org", Port: 443, Options: map[string]any{"host_header": "a b"}},
+		"path with space": {Type: typeHTTP, Host: "example.org", Port: 443, Options: map[string]any{"path": "/a b"}},
+		"path with #":     {Type: typeHTTP, Host: "example.org", Port: 443, Options: map[string]any{"path": "/a#b"}},
 		"unknown option":  {Type: typeHTTP, Host: "example.org", Port: 443, Options: map[string]any{"verify": false}},
 	} {
 		tg := tg
@@ -113,5 +115,16 @@ func TestHTTPStopsWithTheTarget(t *testing.T) {
 	t0 := time.Now()
 	if _, err := httpRound(ctx, tg, 3, time.Millisecond, time.Minute); err == nil || time.Since(t0) > 3*time.Second {
 		t.Fatalf("not stopped: %v after %v", err, time.Since(t0))
+	}
+}
+
+// A name that does not resolve is a round that could not be measured, not loss.
+func TestHTTPUnresolvableNameIsAProbeErrorNotLoss(t *testing.T) {
+	tg := TargetCfg{Type: typeHTTP, Host: "no-such-host.invalid", Port: 80, Options: map[string]any{"scheme": "http"}}
+	if err := normalizeTarget(&tg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := httpRound(context.Background(), tg, 2, time.Millisecond, time.Second); err == nil {
+		t.Fatal("an unresolvable name was reported as loss")
 	}
 }

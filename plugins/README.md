@@ -16,6 +16,13 @@ production, and each one is also written to be read, with the comments saying
 | [`ssh`](ssh/README.md) | time for an SSH server to greet | **Bash** | the one rule of shell: input never becomes code |
 | [`traceroute`](traceroute/README.md) | latency to the destination or to one router on the path | **Rust** | system calls without root; `unsafe` done carefully; making invalid input unrepresentable |
 
+## Trust
+
+A prober runs with fogping's own privileges, once per round. Install only probers
+you trust, and run fogping as an ordinary account, not as root. fogping refuses to
+load from a directory that others can write to; see section 8 of
+[docs/PROBE-PROTOCOL.md](../docs/PROBE-PROTOCOL.md).
+
 ## Use them
 
 ```sh

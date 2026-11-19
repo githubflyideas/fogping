@@ -62,13 +62,31 @@ func validateHTTP(t *TargetCfg) error {
 	if !validURLHost(t.Host) {
 		return fmt.Errorf("http host must be a hostname or an IP address")
 	}
-	if p := t.OptString("path"); !strings.HasPrefix(p, "/") {
-		return fmt.Errorf("option \"path\" must start with /")
+	if p := t.OptString("path"); !validURLPath(p) {
+		return fmt.Errorf("option \"path\" must start with / and hold no spaces, # or control characters")
 	}
 	if h := t.OptString("host_header"); h != "" && !validURLHost(h) {
 		return fmt.Errorf("option \"host_header\" must be a hostname or an IP address")
 	}
 	return nil
+}
+
+// validURLPath: starts with "/", and every character is printable and not a space
+// or "#". The path is split at "?" and the query part is placed into the URL as
+// written (url.URL does not escape it), so what may appear in it has to be checked
+// here: a space would corrupt the request line, and "#" would start a fragment that
+// silently drops the rest. Control characters are refused by the options layer and
+// again by net/http, but this prober does not rely on either.
+func validURLPath(p string) bool {
+	if !strings.HasPrefix(p, "/") {
+		return false
+	}
+	for _, r := range p {
+		if r <= ' ' || r == 0x7f || r == '#' {
+			return false
+		}
+	}
+	return true
 }
 
 // validURLHost is a WHITELIST: letters, digits, dot, hyphen, underscore, colon
@@ -130,6 +148,9 @@ func httpRound(ctx context.Context, t TargetCfg, packets int, gap, timeout time.
 			DisableKeepAlives: true,
 			TLSClientConfig:   &tls.Config{MinVersion: tls.VersionTLS12}, // certificates ARE verified
 			Proxy:             nil,                                       // never a proxy taken from the environment
+			// A server chooses how much it sends before the body. Bound it: the default is
+			// 1 MB per probe, from a machine we do not control.
+			MaxResponseHeaderBytes: 64 << 10,
 		},
 		CheckRedirect: func(_ *http.Request, via []*http.Request) error {
 			if !follow {
@@ -150,20 +171,31 @@ func httpRound(ctx context.Context, t TargetCfg, packets int, gap, timeout time.
 				return r, ctx.Err()
 			}
 		}
-		if ms, ok := httpOnce(ctx, client, t, target, expect); ok {
+		ms, ok, err := httpOnce(ctx, client, t, target, expect)
+		var dns *net.DNSError
+		switch {
+		case ok:
 			r.R++
 			r.MS = append(r.MS, ms)
-		} else if ctx.Err() != nil {
+		case ctx.Err() != nil:
 			return r, ctx.Err() // stopped mid-round: the caller drops the round
+		case errors.As(err, &dns):
+			// A name that does not resolve says nothing about the service: it is a
+			// round that could not be measured (like a tcp target's lookup failure),
+			// not 100% loss.
+			return r, fmt.Errorf("cannot resolve %s: %v", t.Host, dns.Err)
 		}
 	}
 	return r, nil
 }
 
-func httpOnce(ctx context.Context, client *http.Client, t TargetCfg, target string, expect int) (float64, bool) {
+// httpOnce performs one request. ok means the probe was answered acceptably; err is
+// the transport error when it was not, so the caller can tell "the network did not
+// answer" (loss) from "we could not even try" (a probe error).
+func httpOnce(ctx context.Context, client *http.Client, t TargetCfg, target string, expect int) (ms float64, ok bool, err error) {
 	req, err := http.NewRequestWithContext(ctx, t.OptString("method"), target, nil)
 	if err != nil {
-		return 0, false
+		return 0, false, nil
 	}
 	if h := t.OptString("host_header"); h != "" {
 		req.Host = h // the Host header is a field of the request, not a header map entry
@@ -173,13 +205,13 @@ func httpOnce(ctx context.Context, client *http.Client, t TargetCfg, target stri
 	resp, err := client.Do(req) // returns as soon as the headers are in
 	elapsed := time.Since(start)
 	if err != nil {
-		return 0, false
+		return 0, false, err
 	}
 	// The body is never read: draining a large download would cost time and
 	// bandwidth for nothing.
 	resp.Body.Close()
 	if !httpStatusOK(resp.StatusCode, expect) {
-		return 0, false
+		return 0, false, nil
 	}
-	return float64(elapsed.Microseconds()) / 1000.0, true
+	return float64(elapsed.Microseconds()) / 1000.0, true, nil
 }

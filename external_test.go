@@ -153,3 +153,21 @@ func TestExternalProberIsFirstClass(t *testing.T) {
 		t.Fatal("not in probeTypes")
 	}
 }
+
+// A directory others can write to could have its prober swapped for any program, so
+// neither it nor a probes/ directory in that state is trusted.
+func TestUntrustedDirectoriesAreRefused(t *testing.T) {
+	root := t.TempDir()
+	ok := `echo '{"protocol":"fogping-probe/1","error":"x"}'`
+	d := plugin(t, root, "open", "", ok, 0o755)
+	os.Chmod(d, 0o777)
+	plugin(t, root, "fine", "", ok, 0o755)
+	if got := loadProbes(root); len(got) != 1 || got[0] != "fine" {
+		t.Fatalf("loaded %v, want only fine", got)
+	}
+	os.Chmod(root, 0o777)
+	defer os.Chmod(root, 0o700)
+	if got := loadProbes(root); got != nil {
+		t.Fatalf("loaded %v from a world-writable probes directory", got)
+	}
+}

@@ -70,6 +70,15 @@ var extSlots = make(chan struct{}, maxConcurrent)
 // loadProbes registers every valid plugin under dir and logs the rest. It returns
 // the types it registered.
 func loadProbes(dir string) []string {
+	// The directory holds programs fogping will run, so whoever can write to it can
+	// run code as fogping. Refuse a directory that others can write to or that
+	// another account owns, rather than load whatever they put there.
+	if fi, err := os.Stat(dir); err == nil {
+		if why := untrusted(fi); why != "" {
+			log.Printf("probes: not loading from %s: the directory is %s", dir, why)
+			return nil
+		}
+	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -98,7 +107,25 @@ func loadProbes(dir string) []string {
 	return loaded
 }
 
+// untrusted says why a file or directory cannot be trusted to hold code that
+// fogping runs, or "" when it can: writable by group or others, or owned by an
+// account other than fogping's own and root.
+func untrusted(fi os.FileInfo) string {
+	if fi.Mode().Perm()&0o022 != 0 {
+		return "writable by group or others"
+	}
+	if st, ok := fi.Sys().(*syscall.Stat_t); ok && st.Uid != 0 && int(st.Uid) != os.Geteuid() {
+		return "owned by another account"
+	}
+	return ""
+}
+
 func loadProbe(dir string) (string, error) {
+	if fi, err := os.Lstat(dir); err != nil {
+		return "", err
+	} else if why := untrusted(fi); why != "" {
+		return "", fmt.Errorf("the directory is %s", why)
+	}
 	mpath := filepath.Join(dir, manifestFile)
 	fi, err := os.Lstat(mpath)
 	if err != nil {
@@ -134,8 +161,8 @@ func loadProbe(dir string) (string, error) {
 	if !efi.Mode().IsRegular() || efi.Mode().Perm()&0o111 == 0 {
 		return "", fmt.Errorf("%q must be a regular file with the execute bit set", probeExecutable)
 	}
-	if efi.Mode().Perm()&0o022 != 0 {
-		return "", fmt.Errorf("%q must not be writable by group or others", probeExecutable)
+	if why := untrusted(efi); why != "" {
+		return "", fmt.Errorf("%q is %s", probeExecutable, why)
 	}
 	workdir, err := emptyWorkdir()
 	if err != nil {
