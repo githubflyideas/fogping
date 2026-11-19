@@ -31,7 +31,7 @@ RUN xx-go build -trimpath -tags "timetzdata sqlite_omit_load_extension" \
  && xx-verify --static /out/fogping
 
 # busybox:musl 约 1MB：提供 sh（入口脚本）和 wget（健康检查）
-FROM busybox:1.37-musl
+FROM busybox:1.38-musl
 
 LABEL org.opencontainers.image.title="fogping" \
       org.opencontainers.image.description="SmokePing-like latency monitor: one binary, embedded SQLite, targets edited in the web UI" \
