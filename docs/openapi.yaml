@@ -1,0 +1,614 @@
+openapi: 3.1.0
+info:
+  title: fogping HTTP API
+  version: "1"
+  summary: The API the fogping web UI and the Zabbix template use.
+  description: |
+    Machine-readable form of [API.md](API.md); the rules there apply.
+    Every `/api/` response carries `API-Version: 1`. Every error is
+    `{"error", "code"}` (schema `Error`). A wrong method on a known path is
+    `405` with an `Allow` header; an unknown path under `/api/` is `404`.
+
+    "session" below means the `fogping_session` cookie from `POST /api/login`
+    when fogping was started with a login; without a login, anyone may call
+    those endpoints. `GET /api/stats` is the only endpoint that takes a bearer
+    token, and that token is read-only.
+
+    `api_test.go` (`TestOpenAPIMatchesRoutes`) fails when this file and the
+    routes the code registers differ.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+  - url: /
+    description: The fogping instance serving this API (default port 8518).
+tags:
+  - name: pages
+    description: HTML pages and static files, outside `/api/`.
+  - name: auth
+    description: Sign in and out.
+  - name: info
+    description: Build and probe-type information.
+  - name: targets
+    description: Read and change what is probed.
+  - name: data
+    description: Measurements.
+security:
+  - session: []
+paths:
+  /:
+    get:
+      tags: [pages]
+      operationId: getIndex
+      summary: The web UI.
+      security: []
+      responses:
+        "200":
+          description: The dashboard page.
+          content:
+            text/html: {}
+        "302":
+          description: Not signed in; redirects to `/login`.
+          headers:
+            Location:
+              schema: { type: string, const: /login }
+        "405":
+          description: Wrong method (plain text; not under `/api/`).
+  /login:
+    get:
+      tags: [pages]
+      operationId: getLoginPage
+      summary: The sign-in page.
+      security: []
+      responses:
+        "200":
+          description: The sign-in page.
+          content:
+            text/html: {}
+        "405":
+          description: Wrong method (plain text; not under `/api/`).
+  /static/{path}:
+    get:
+      tags: [pages]
+      operationId: getStatic
+      summary: Embedded static files (the route is the prefix `/static/`).
+      security: []
+      parameters:
+        - name: path
+          in: path
+          required: true
+          description: File path below `/static/`; may contain `/`.
+          schema: { type: string }
+      responses:
+        "200":
+          description: The file.
+          content:
+            "*/*": {}
+        "404":
+          description: No such file (plain text, not under `/api/`).
+        "405":
+          description: Wrong method (plain text; not under `/api/`).
+  /api/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Sign in and get the session cookie.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user: { type: string }
+                pass: { type: string }
+      responses:
+        "200":
+          description: Signed in.
+          headers:
+            Set-Cookie:
+              description: "`fogping_session`; HttpOnly, SameSite=Lax, 7 days."
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ok" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /api/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: Sign out; the session also ends on the server. Safe without one.
+      security: []
+      responses:
+        "200":
+          description: Signed out; the cookie is cleared.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ok" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+  /api/version:
+    get:
+      tags: [info]
+      operationId: getVersion
+      summary: Build version; instance settings too with a session.
+      security:
+        - {}
+        - session: []
+      responses:
+        "200":
+          description: >
+            `version` for everyone; with a session (or no login configured)
+            also `retention_days`, `hot_days` and `editable`.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version]
+                properties:
+                  version: { type: string }
+                  retention_days: { type: integer }
+                  hot_days: { type: integer }
+                  editable: { type: boolean }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+  /api/probe-types:
+    get:
+      tags: [info]
+      operationId: getProbeTypes
+      summary: The probe types this build can run, in display order.
+      responses:
+        "200":
+          description: Probe types.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ProbeType" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+  /api/targets:
+    get:
+      tags: [targets]
+      operationId: listTargets
+      summary: Every target with its last-hour and last-day summary.
+      responses:
+        "200":
+          description: Targets.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/TargetItem" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+    post:
+      tags: [targets]
+      operationId: createTarget
+      summary: Create a target (needs `--edit`). Unknown fields are refused.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TargetInput" }
+      responses:
+        "200":
+          description: The created target.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Target" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "500": { $ref: "#/components/responses/Internal" }
+  /api/targets/{id}:
+    parameters:
+      - $ref: "#/components/parameters/TargetID"
+    put:
+      tags: [targets]
+      operationId: replaceTarget
+      summary: Replace a target (needs `--edit`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TargetInput" }
+      responses:
+        "200":
+          description: The replaced target.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Target" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "500": { $ref: "#/components/responses/Internal" }
+    delete:
+      tags: [targets]
+      operationId: deleteTarget
+      summary: Delete a target (needs `--edit`); its history is kept.
+      responses:
+        "200":
+          description: The deleted target as it was.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Target" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+        "500": { $ref: "#/components/responses/Internal" }
+  /api/targets/export:
+    get:
+      tags: [targets]
+      operationId: exportTargets
+      summary: The target list as a `netping-targets` file download.
+      responses:
+        "200":
+          description: See [targets-format.md](targets-format.md).
+          headers:
+            Content-Disposition:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TargetsFile" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+        "500": { $ref: "#/components/responses/Internal" }
+  /api/targets/import:
+    post:
+      tags: [targets]
+      operationId: importTargets
+      summary: Import a `netping-targets` file (needs `--edit`).
+      parameters:
+        - name: dry_run
+          in: query
+          description: "`1`, `true` or `yes`: report the plan without applying it."
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TargetsFile" }
+      responses:
+        "200":
+          description: What was (or would be) imported.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImportPlan" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "500": { $ref: "#/components/responses/Internal" }
+  /api/series:
+    get:
+      tags: [data]
+      operationId: getSeries
+      summary: Rounds for one target, raw up to a day and hourly beyond.
+      parameters:
+        - name: target
+          in: query
+          required: true
+          schema: { type: string }
+        - name: minutes
+          in: query
+          description: Recent window; default 360, at most 93 days. Used when `from` or `to` is missing.
+          schema: { type: integer }
+        - name: from
+          in: query
+          description: Unix seconds.
+          schema: { type: integer, format: int64 }
+        - name: to
+          in: query
+          description: Unix seconds.
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: See "`/api/series` format" in API.md.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Series" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+  /api/stats:
+    get:
+      tags: [data]
+      operationId: getStats
+      summary: Per-target summary of the last 5 minutes, for Zabbix.
+      description: Registered only when fogping runs with `--zabbix` and a token.
+      security:
+        - bearer: []
+      responses:
+        "200":
+          description: Summary.
+          headers:
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StatsReport" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: fogping_session
+    bearer:
+      type: http
+      scheme: bearer
+      description: The read-only Zabbix token; accepted by `GET /api/stats` only.
+  parameters:
+    TargetID:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, format: int64, minimum: 1 }
+  responses:
+    BadRequest:
+      description: Bad input.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Missing or bad credential.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: Read-only instance (no `--edit`) or a cross-origin browser request.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: No such target.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    MethodNotAllowed:
+      description: Wrong method for this path.
+      headers:
+        Allow:
+          schema: { type: string }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Conflict:
+      description: The name is taken or belongs to a deleted target.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    TooLarge:
+      description: Request body too large.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    UnsupportedMediaType:
+      description: Content-Type is not `application/json`.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    RateLimited:
+      description: Too many failed attempts from this address.
+      headers:
+        Retry-After:
+          description: Seconds to wait.
+          schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Internal:
+      description: Server error.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      type: object
+      required: [error, code]
+      properties:
+        error: { type: string, description: For a person. }
+        code:
+          type: string
+          description: For a program; fixed per status.
+          enum: [bad_request, unauthorized, forbidden, not_found, method_not_allowed, conflict,
+                 too_large, unsupported_media_type, rate_limited, unavailable, internal]
+    Ok:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean, const: true }
+    OptionSpec:
+      type: object
+      required: [key, label, kind]
+      properties:
+        key: { type: string }
+        label: { type: string }
+        help: { type: string }
+        kind: { type: string }
+        required: { type: boolean }
+        default: {}
+        min: { type: integer }
+        max: { type: integer }
+        max_len: { type: integer }
+        choices: { type: array, items: { type: string } }
+    ProbeType:
+      type: object
+      required: [type, label, uses_port, options]
+      properties:
+        type: { type: string }
+        label: { type: string }
+        uses_port: { type: boolean }
+        options: { type: array, items: { $ref: "#/components/schemas/OptionSpec" } }
+    TargetInput:
+      type: object
+      additionalProperties: false
+      properties:
+        id: { type: integer, format: int64, description: Ignored; the path id wins on PUT. }
+        name: { type: string }
+        type: { type: string, description: A probe type from `/api/probe-types`; `icmp` when empty. }
+        host: { type: string }
+        port: { type: integer }
+        pace: { type: string, enum: ["", fast, normal, slow] }
+        interval_sec: { type: integer }
+        options: { type: object, description: Keys per the type's spec (OPTIONS.md). }
+    Target:
+      type: object
+      required: [id, name, type, host, port, pace, interval_sec]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        type: { type: string }
+        host: { type: string }
+        port: { type: integer }
+        pace: { type: string }
+        interval_sec: { type: integer }
+        options: { type: object }
+    Stats:
+      type: object
+      required: [rounds, p50, p90, p99, loss_pct, bursts, probe_errors]
+      properties:
+        rounds: { type: integer }
+        p50: { type: number }
+        p90: { type: number }
+        p99: { type: number }
+        loss_pct: { type: number }
+        bursts: { type: integer }
+        probe_errors: { type: integer }
+    TargetItem:
+      type: object
+      required: [id, name, type, host, port, addr, interval_sec, interval_set, pace, down, last_1h, last_24h]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        type: { type: string }
+        host: { type: string }
+        port: { type: integer }
+        addr: { type: string }
+        interval_sec: { type: integer, description: Effective interval. }
+        interval_set: { type: integer, description: Explicit override; 0 means from pace. }
+        pace: { type: string }
+        options: { type: object }
+        down: { type: boolean }
+        probe_error: { type: string, description: Why the latest round could not be measured. }
+        last_1h: { $ref: "#/components/schemas/Stats" }
+        last_24h: { $ref: "#/components/schemas/Stats" }
+    TargetsFile:
+      type: object
+      description: A `netping-targets` file; full schema in [targets.schema.json](targets.schema.json).
+      required: [format, version, targets]
+      properties:
+        format: { type: string, const: netping-targets }
+        version: { type: integer }
+        name: { type: string }
+        description: { type: string }
+        targets: { type: array, items: { type: object } }
+    ImportPlan:
+      type: object
+      required: [total, add, skip, invalid, dry_run, imported]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        total: { type: integer }
+        add:
+          type: array
+          items:
+            type: object
+            required: [row, type, host]
+            properties:
+              row: { type: integer }
+              name: { type: string }
+              type: { type: string }
+              host: { type: string }
+              port: { type: integer }
+              pace: { type: string }
+              interval: { type: integer }
+              options: { type: object }
+              restores_history: { type: boolean }
+        skip:
+          type: array
+          items:
+            type: object
+            required: [row, name, code, reason]
+            properties:
+              row: { type: integer }
+              name: { type: string }
+              code: { type: string, enum: [exists, duplicate] }
+              reason: { type: string }
+        invalid:
+          type: array
+          items:
+            type: object
+            required: [row, error]
+            properties:
+              row: { type: integer }
+              name: { type: string }
+              error: { type: string }
+        dry_run: { type: boolean }
+        imported: { type: integer }
+    Round:
+      type: object
+      required: [t, s, r, ms]
+      properties:
+        t: { type: integer, format: int64, description: Unix seconds. }
+        s: { type: integer, description: Packets sent; 0 when the round could not be measured. }
+        r: { type: integer, description: Replies received. }
+        ms: { type: [array, "null"], items: { type: number } }
+        b: { type: boolean, description: Flagged as a loss burst. }
+        z: { type: number, description: Robust z-score behind the flag. }
+        e: { type: string, description: Why the round could not be measured. }
+    Bucket:
+      type: object
+      required: [t, loss, n]
+      properties:
+        t: { type: integer, format: int64 }
+        q: { type: array, items: { type: number }, description: "min, p50, p90, p99, max in ms." }
+        loss: { type: number, description: Percent of packets lost. }
+        n: { type: integer }
+        bursts: { type: integer }
+    Series:
+      type: object
+      required: [tier]
+      properties:
+        tier: { type: string, enum: [raw, hourly] }
+        rounds: { type: array, items: { $ref: "#/components/schemas/Round" } }
+        buckets: { type: array, items: { $ref: "#/components/schemas/Bucket" } }
+    StatsTarget:
+      type: object
+      required: [id, name, rounds, bursts, probe_errors]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        rounds: { type: integer }
+        p50: { type: number }
+        p90: { type: number }
+        p99: { type: number }
+        loss_pct: { type: number }
+        bursts: { type: integer }
+        up: { type: integer, enum: [0, 1] }
+        probe_errors: { type: integer }
+    StatsReport:
+      type: object
+      required: [window_sec, targets]
+      properties:
+        window_sec: { type: integer }
+        targets: { type: array, items: { $ref: "#/components/schemas/StatsTarget" } }

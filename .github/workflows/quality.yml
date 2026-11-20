@@ -1,0 +1,37 @@
+name: quality
+
+# Keeps three things from drifting: the router's complexity, the OpenAPI spec
+# against the registered routes, and the sign-in page's Caps Lock hint in a
+# real browser.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with: { go-version-file: go.mod }
+      - name: gocyclo (router stays small)
+        run: |
+          go install github.com/fzipp/gocyclo/cmd/gocyclo@v0.6.0
+          gocyclo -over 15 web.go stats.go
+      - name: OpenAPI spec matches the routes
+        run: go test -count=1 -run 'TestOpenAPI|TestAPI' -v .
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: '22', cache: npm, cache-dependency-path: browser/package-lock.json }
+      - name: OpenAPI lint
+        run: npx --yes @redocly/cli@2.82.0 lint docs/openapi.yaml
+      - name: Browser tests
+        working-directory: browser
+        run: |
+          npm ci --ignore-scripts
+          npx playwright install --with-deps chromium
+          npm test
