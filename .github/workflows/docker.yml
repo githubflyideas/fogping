@@ -24,10 +24,72 @@ jobs:
       packages: write   # 推 GHCR 用
     env:
       PUSH: ${{ github.event_name != 'pull_request' }}
+      VERSION: ${{ github.ref_type == 'tag' && github.ref_name || 'dev' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        with:
+          images: |
+            docker.io/${{ vars.DOCKERHUB_USER || 'githubflyideas' }}/fogping
+            ghcr.io/${{ github.repository_owner }}/fogping
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=ref,event=pr
+
+      # Smoke amd64 (same VERSION as the later push) before publishing, so a
+      # broken image is not pushed. The multi-arch push reuses the GHA cache.
+      - name: Build amd64 image for smoke
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: fogping:smoke
+          build-args: VERSION=${{ env.VERSION }}
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: smoke test (amd64)
+        run: |
+          set -euo pipefail
+          cleanup() { docker rm -f fp >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          docker run -d --name fp -p 8518:8518 \
+            -e FOGPING_EDIT=1 -e FOGPING_USER=admin -e FOGPING_PASSWD=pw \
+            fogping:smoke
+          ok=0
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8518/api/version; then
+              ok=1
+              break
+            fi
+            sleep 1
+          done
+          test "$ok" = 1
+          # Anonymous callers get the version only once a login is configured;
+          # the instance settings (editable, retention) need a session.
+          ver=$(curl -fsS http://127.0.0.1:8518/api/version)
+          echo "$ver"
+          if echo "$ver" | grep -q '"editable"'; then
+            echo "::error::anonymous /api/version exposes instance settings"; exit 1
+          fi
+          echo "$ver" | grep -F "\"version\":\"${VERSION}\"" >/dev/null || {
+            echo "::error::version is not ${VERSION}: ${ver}"; exit 1
+          }
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8518/api/targets)" = 401
+          curl -fsS -c /tmp/fp.cookies -H 'Content-Type: application/json' \
+            -X POST http://127.0.0.1:8518/api/login \
+            -d '{"User":"admin","Pass":"pw"}' > /dev/null
+          curl -fsS -b /tmp/fp.cookies http://127.0.0.1:8518/api/version | grep -q '"editable":true'
+          docker logs fp
 
       - if: env.PUSH == 'true'
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
@@ -42,18 +104,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - id: meta
-        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
-        with:
-          images: |
-            docker.io/${{ vars.DOCKERHUB_USER || 'githubflyideas' }}/fogping
-            ghcr.io/${{ github.repository_owner }}/fogping
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-            type=ref,event=pr
-
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
@@ -61,29 +111,7 @@ jobs:
           push: ${{ env.PUSH == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: VERSION=${{ github.ref_type == 'tag' && github.ref_name || 'dev' }}
+          build-args: VERSION=${{ env.VERSION }}
           provenance: false   # 避免部分平台（如 RouterOS）解析 manifest 时遇到 attestation 条目
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      # 冒烟测试：amd64 单架构 load 到本地，起容器打 /api/version
-      - name: smoke test (amd64)
-        run: |
-          docker buildx build --load --platform linux/amd64 -t fogping:smoke --cache-from type=gha .
-          docker run -d --name fp -p 8518:8518 \
-            -e FOGPING_EDIT=1 -e FOGPING_USER=admin -e FOGPING_PASSWD=pw \
-            fogping:smoke
-          for i in $(seq 1 20); do
-            curl -fsS http://127.0.0.1:8518/api/version && break
-            sleep 1
-          done
-          # Anonymous callers get the version only once a login is configured;
-          # the instance settings (editable, retention) need a session.
-          if curl -fsS http://127.0.0.1:8518/api/version | grep -q '"editable"'; then
-            echo "::error::anonymous /api/version exposes instance settings"; exit 1
-          fi
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8518/api/targets)" = 401
-          curl -fsS -c /tmp/fp.cookies -X POST http://127.0.0.1:8518/api/login \
-            -d '{"User":"admin","Pass":"pw"}' > /dev/null
-          curl -fsS -b /tmp/fp.cookies http://127.0.0.1:8518/api/version | grep -q '"editable":true'
-          docker logs fp
