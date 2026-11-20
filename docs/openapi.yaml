@@ -14,7 +14,7 @@ info:
     those endpoints. `GET /api/stats` is the only endpoint that takes a bearer
     token, and that token is read-only.
 
-    `api_test.go` (`TestOpenAPIMatchesRoutes`) fails when this file and the
+    `openapi_test.go` (`TestOpenAPIMatchesRoutes`) fails when this file and the
     routes the code registers differ.
   license:
     name: Apache-2.0
