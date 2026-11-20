@@ -1,0 +1,197 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"net"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+)
+
+// A prober is one way of measuring a target: ICMP echo, a TCP connect, and later
+// whatever an external module adds. This registry is the only place that knows
+// which probers exist. Validation, the probe loop, the address shown for a
+// target and the targets file all ask it, so adding a prober is one
+// registerProber call and nothing else in fogping changes.
+type prober struct {
+	// name is the target type as stored and as the API speaks it: "icmp".
+	name string
+	// label is the short name the UI shows: "PING".
+	label string
+	// fileName is the type in a netping-targets file ("ping" for icmp), so files
+	// stay readable by pingping. Defaults to name.
+	fileName string
+	// usesPort says the target has a meaningful port field.
+	usesPort bool
+	// options declares the settings this prober takes beyond the core fields
+	// (options.go). The editor form, validation, storage and the targets file all
+	// follow from it.
+	options []optionSpec
+	// validate checks and normalises the fields only this prober cares about.
+	// The fields every target has (name, host, pace, interval) are checked by
+	// normalizeTarget for all of them.
+	validate func(t *TargetCfg) error
+	// round measures the target once: packets probes, gap apart, each waiting at
+	// most timeout. ctx is cancelled when the target stops.
+	round func(ctx context.Context, t TargetCfg, packets int, gap, timeout time.Duration) (Round, error)
+}
+
+// The built-in probers' names. Everything else spells a type through these.
+const (
+	typeICMP = "icmp"
+	typeTCP  = "tcp"
+)
+
+var (
+	// regMu guards probers and order. They are filled while fogping starts, but
+	// nothing should depend on that staying true.
+	regMu   sync.RWMutex
+	probers = map[string]*prober{}
+	order   []string // registration order: the order the UI lists types in
+)
+
+// registerProber adds a prober. Names are unique, and its option declarations must
+// be valid. A prober that breaks either rule is refused with an error and nothing
+// is registered: whoever supplied it (a plugin directory, a mistake in our own
+// source) can never stop fogping from starting.
+func registerProber(p *prober) error {
+	if err := validateSpecs(p.options); err != nil {
+		return fmt.Errorf("prober %s: %w", p.name, err)
+	}
+	regMu.Lock()
+	defer regMu.Unlock()
+	if p.fileName == "" {
+		p.fileName = p.name
+	}
+	if _, dup := probers[p.name]; dup {
+		return fmt.Errorf("prober %q is already registered", p.name)
+	}
+	if p.label == "" {
+		p.label = strings.ToUpper(p.name)
+	}
+	probers[p.name] = p
+	order = append(order, p.name)
+	return nil
+}
+
+// registerBuiltin registers a prober that is part of fogping's own source. A
+// failure here is a bug of ours (tests make sure it cannot ship), never a user's
+// mistake, and it still must not stop fogping from starting: the type is left out,
+// the reason is logged, and everything else runs.
+func registerBuiltin(p *prober) {
+	if err := registerProber(p); err != nil {
+		log.Printf("ERROR: built-in probe type not available: %v", err)
+	}
+}
+
+// probeTypeInfo is what the UI needs to list and edit a type.
+type probeTypeInfo struct {
+	Type     string       `json:"type"`
+	Label    string       `json:"label"`
+	UsesPort bool         `json:"uses_port"`
+	Options  []optionSpec `json:"options"`
+}
+
+func probeTypes() []probeTypeInfo {
+	regMu.RLock()
+	defer regMu.RUnlock()
+	out := make([]probeTypeInfo, 0, len(order))
+	for _, n := range order {
+		p := probers[n]
+		out = append(out, probeTypeInfo{Type: p.name, Label: p.label, UsesPort: p.usesPort, Options: append([]optionSpec{}, p.options...)})
+	}
+	return out
+}
+
+// unregisterProber removes a prober. Only tests need it: in the program the
+// registry is filled at start and never shrinks.
+func unregisterProber(name string) {
+	regMu.Lock()
+	defer regMu.Unlock()
+	delete(probers, name)
+	for i, n := range order {
+		if n == name {
+			order = append(order[:i:i], order[i+1:]...)
+			break
+		}
+	}
+}
+
+func proberFor(typ string) (*prober, bool) {
+	regMu.RLock()
+	defer regMu.RUnlock()
+	p, ok := probers[typ]
+	return p, ok
+}
+
+// proberForFile finds a prober by the type a targets file uses, or by its own
+// name, ignoring case.
+func proberForFile(fileType string) (*prober, bool) {
+	regMu.RLock()
+	defer regMu.RUnlock()
+	ft := strings.ToLower(strings.TrimSpace(fileType))
+	for _, p := range probers {
+		if ft == p.fileName || ft == p.name {
+			return p, true
+		}
+	}
+	return nil, false
+}
+
+// proberNames lists the types for error messages, e.g. "icmp|tcp".
+func proberNames(file bool) string {
+	regMu.RLock()
+	defer regMu.RUnlock()
+	var names []string
+	for _, p := range probers {
+		if file {
+			names = append(names, p.fileName)
+		} else {
+			names = append(names, p.name)
+		}
+	}
+	sort.Strings(names)
+	return strings.Join(names, "|")
+}
+
+// targetAddr is the address a target is shown with: host, or host:port for a
+// prober that uses a port.
+func targetAddr(t TargetCfg) string {
+	if p, ok := proberFor(t.Type); ok && p.usesPort {
+		return net.JoinHostPort(t.Host, strconv.Itoa(t.Port))
+	}
+	return t.Host
+}
+
+func init() {
+	registerBuiltin(&prober{
+		name:     typeICMP,
+		label:    "PING",
+		fileName: "ping",
+		validate: func(t *TargetCfg) error {
+			t.Port = 0
+			return nil
+		},
+		round: func(ctx context.Context, t TargetCfg, packets int, gap, timeout time.Duration) (Round, error) {
+			return icmpRound(ctx, t.Host, packets, gap, timeout)
+		},
+	})
+	registerBuiltin(&prober{
+		name:     typeTCP,
+		usesPort: true,
+		validate: func(t *TargetCfg) error {
+			if t.Port < 1 || t.Port > 65535 {
+				return fmt.Errorf("tcp target needs a port 1-65535")
+			}
+			return nil
+		},
+		round: func(ctx context.Context, t TargetCfg, packets int, gap, timeout time.Duration) (Round, error) {
+			return tcpRound(ctx, t.Host, t.Port, packets, gap, timeout)
+		},
+	})
+	registerHTTP()
+}

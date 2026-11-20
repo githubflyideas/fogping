@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/githubflyideas/fogping/blob/main/docs/probe-manifest.schema.json",
+  "title": "fogping probe manifest, protocol fogping-probe/1",
+  "description": "What a prober, in any language, declares about itself. The rules JSON Schema cannot express (unique keys, defaults that satisfy their own spec) are in PROBE-PROTOCOL.md and checked by docs/conformance.",
+  "type": "object",
+  "required": ["protocol", "type", "label"],
+  "properties": {
+    "protocol": { "const": "fogping-probe/1" },
+    "type": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{0,31}$", "description": "The target type this prober measures." },
+    "label": { "type": "string", "pattern": "\\S", "maxLength": 16, "description": "Short name the UI shows." },
+    "uses_port": { "type": "boolean", "default": false },
+    "options": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/option" }, "default": [] }
+  },
+  "$defs": {
+    "option": {
+      "type": "object",
+      "required": ["key", "label", "kind"],
+      "properties": {
+        "key": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}$" },
+        "label": { "type": "string", "pattern": "\\S" },
+        "help": { "type": "string" },
+        "kind": { "enum": ["string", "int", "bool", "choice"] },
+        "required": { "type": "boolean", "default": false },
+        "default": { "type": ["string", "integer", "boolean"] },
+        "min": { "type": "integer", "description": "int: smallest allowed value (default 0)." },
+        "max": { "type": "integer", "description": "int: largest allowed value; 0 or absent means no upper bound." },
+        "max_len": { "type": "integer", "minimum": 1, "description": "string: most characters allowed (default 256)." },
+        "choices": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "choice: the allowed values." }
+      },
+      "allOf": [
+        { "if": { "properties": { "kind": { "const": "choice" } } }, "then": { "required": ["choices"] } }
+      ]
+    }
+  }
+}

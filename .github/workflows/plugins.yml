@@ -1,0 +1,40 @@
+name: plugins
+
+# The official probers in plugins/ are written in five languages. Each one has its
+# own tests against a fake server, and then all five are installed and run through
+# the real fogping loader, so the manifest, the stdin/stdout contract and the strict
+# judgement of their answers are checked together. The runner already has Go,
+# Python, Ruby and Rust; nothing is installed from outside the repository.
+on:
+  push:
+    branches: [main]
+    paths: ['plugins/**', 'docs/conformance/**', 'external*.go', 'manifest.go', 'result.go', 'options.go', 'plugins_test.go']
+  pull_request:
+    paths: ['plugins/**', 'docs/conformance/**', 'external*.go', 'manifest.go', 'result.go', 'options.go', 'plugins_test.go']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  plugins:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with: { go-version-file: go.mod }
+      - name: ldap (Go)
+        run: make -C plugins/ldap test
+      - name: dns (Python)
+        run: cd plugins/dns && python3 -m unittest test_probe.py
+      - name: smtp (Ruby)
+        run: cd plugins/smtp && ruby test_probe.rb
+      - name: ssh (Bash)
+        run: plugins/ssh/test.sh
+      - name: traceroute (Rust)
+        run: |
+          cd plugins/traceroute
+          cargo test --locked
+          cargo clippy --locked -- -D warnings
+      - name: all five through fogping
+        run: go test -count=1 -v -run 'TestPlugin|Conformance|External' ./...

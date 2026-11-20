@@ -1,0 +1,206 @@
+#!/usr/bin/env python3
+"""A fogping prober that times a DNS lookup. Written in Python, standard library only.
+
+The target's HOST is the DNS server being tested (a resolver or an authoritative
+server); the PORT is normally 53. The option `query` is the name we ask it for.
+Each probe sends one UDP query and times the wait for the matching reply, so the
+numbers are the server's latency as a client sees it, with no local cache
+involved.
+
+HOW A PROBER TALKS TO FOGPING (the same in every language)
+    1. read ONE JSON object from standard input      (the request)
+    2. measure
+    3. write ONE JSON object to standard output       (the answer)
+Nothing arrives on the command line and the environment is nearly empty, so a
+user's input can never be turned into a shell command. See
+docs/PROBE-PROTOCOL.md for the complete contract.
+
+Try it by hand:
+    echo '{"protocol":"fogping-probe/1","type":"dns","host":"1.1.1.1","port":53,
+           "packets":3,"gap_ms":200,"timeout_ms":2000,
+           "options":{"query":"example.com","record":"A","require_answer":true}}' | ./probe
+"""
+
+import json
+import secrets
+import socket
+import struct
+import sys
+import time
+
+PROTOCOL = "fogping-probe/1"
+
+# Record types we can ask for: name -> number in the DNS wire format (RFC 1035).
+QTYPES = {"A": 1, "NS": 2, "CNAME": 5, "SOA": 6, "MX": 15, "TXT": 16, "AAAA": 28}
+
+class NotOurs(ValueError):
+    """A packet that is not an answer to our query (stray, late or forged)."""
+
+
+MAX_REPLY = 4096  # bytes we are willing to read: UDP replies fit in 512 without EDNS
+
+
+# --------------------------------------------------------------------------
+# Building and reading DNS messages
+#
+# A DNS message is a 12-byte header followed by the question. Writing it by hand
+# once is the best way to understand it, and it keeps this prober free of any
+# third-party library.
+# --------------------------------------------------------------------------
+
+def encode_name(name):
+    """Turn "www.example.com" into the wire form: each label is a length byte then
+    its bytes, and a zero byte ends the name:  3 www 7 example 3 com 0
+    """
+    out = bytearray()
+    for label in name.rstrip(".").split("."):
+        raw = label.encode("ascii")  # raises for non-ASCII: send IDN names as xn--...
+        if not 1 <= len(raw) <= 63:
+            raise ValueError("each label must be 1-63 characters")
+        out.append(len(raw))
+        out += raw
+    out.append(0)
+    return bytes(out)
+
+
+def build_query(name, qtype, query_id):
+    """One question, recursion desired.
+
+    Header, six 16-bit big-endian numbers ("!6H" below):
+        ID | flags | QDCOUNT | ANCOUNT | NSCOUNT | ARCOUNT
+    flags 0x0100 = only the RD ("recursion desired") bit set.
+    """
+    header = struct.pack("!6H", query_id, 0x0100, 1, 0, 0, 0)
+    question = encode_name(name) + struct.pack("!2H", qtype, 1)  # class 1 = IN (internet)
+    return header + question
+
+
+def check_reply(data, query_id):
+    """Decide whether `data` is a usable answer to OUR query.
+
+    Returns the number of answer records. Raises NotOurs for a packet that is not
+    our answer (it is ignored, we keep waiting) or a plain ValueError when the
+    server really did answer but not with success (that probe is lost). Anything on the
+    network can send us a UDP packet, so we accept a reply only when:
+      * it is at least a full header,
+      * its ID matches the one we sent (an off-path attacker or a late reply to an
+        earlier probe would carry a different ID),
+      * the QR bit says it is a response, and
+      * the response code is 0 (NOERROR).
+    """
+    if len(data) < 12:
+        raise NotOurs("reply shorter than a DNS header")
+    rid, flags, _qd, ancount, _ns, _ar = struct.unpack("!6H", data[:12])
+    if rid != query_id:
+        raise NotOurs("reply ID does not match")
+    if not flags & 0x8000:
+        raise NotOurs("not a response")
+    rcode = flags & 0x000F
+    if rcode != 0:
+        raise ValueError("server returned rcode %d" % rcode)
+    return ancount
+
+
+# --------------------------------------------------------------------------
+# Measuring
+# --------------------------------------------------------------------------
+
+def one_probe(addr, name, qtype, timeout, require_answer):
+    """Send one query. Return the round-trip time in ms, or None if it counts as lost."""
+    family, _type, _proto, _canon, sockaddr = addr
+    query_id = secrets.randbelow(65536)  # unpredictable, not just a counter
+    packet = build_query(name, qtype, query_id)
+    with socket.socket(family, socket.SOCK_DGRAM) as s:  # `with` closes it for us
+        start = time.monotonic()  # monotonic: immune to the clock being adjusted
+        deadline = start + timeout  # ONE deadline for the whole probe, however many stray packets arrive
+        try:
+            s.sendto(packet, sockaddr)
+            while True:
+                # Recompute the remaining time on every pass, otherwise a stream
+                # of junk packets could keep us waiting past the timeout.
+                s.settimeout(max(deadline - time.monotonic(), 0.001))
+                data, peer = s.recvfrom(MAX_REPLY)
+                if peer[0] != sockaddr[0]:
+                    continue  # not from the server we asked; keep waiting
+                elapsed = time.monotonic() - start
+                try:
+                    answers = check_reply(data, query_id)
+                except NotOurs:
+                    continue  # stray or forged packet: ignore it, keep waiting
+                except ValueError:
+                    return None  # the server answered, but not with success
+                if require_answer and answers == 0:
+                    return None  # NOERROR with an empty answer section (NODATA)
+                return elapsed * 1000.0
+        except (socket.timeout, OSError):
+            return None  # no reply in time, or the network refused: that is loss
+
+
+def probe(req):
+    """Run all the probes of one round and build the answer."""
+    opts = req.get("options") or {}
+    name = opts.get("query")
+    if not isinstance(name, str) or not name:
+        return failure("option query is required")
+    qtype = QTYPES.get(opts.get("record", "A"))
+    if qtype is None:
+        return failure("unknown record type")
+    port = req.get("port")
+    if not isinstance(port, int) or not 1 <= port <= 65535:
+        return failure("port must be 1-65535")
+    try:
+        encode_name(name)  # validate the name once, before sending anything
+    except (ValueError, UnicodeEncodeError) as e:
+        return failure("bad query name: %s" % e)
+
+    # Resolve the SERVER's address once per round, outside the timed section: we
+    # are timing the DNS server, not looking the server up.
+    try:
+        addr = socket.getaddrinfo(req["host"], port, type=socket.SOCK_DGRAM)[0]
+    except OSError as e:
+        return failure("cannot resolve the server: %s" % e)
+
+    timeout = req["timeout_ms"] / 1000.0
+    gap = req["gap_ms"] / 1000.0
+    require_answer = opts.get("require_answer", True)
+
+    rtts = []
+    for i in range(req["packets"]):
+        if i:
+            time.sleep(gap)
+        rtt = one_probe(addr, name, qtype, timeout, require_answer)
+        if rtt is not None:
+            rtts.append(round(rtt, 3))
+    # A measurement has `sent`, `received` and `ms`, always all three. Lost probes
+    # are simply absent from `ms`, so len(ms) == received.
+    return {"protocol": PROTOCOL, "sent": req["packets"], "received": len(rtts), "ms": rtts}
+
+
+# --------------------------------------------------------------------------
+# The protocol around it
+# --------------------------------------------------------------------------
+
+def failure(message):
+    """We could not measure at all. That is a valid answer, and fogping records it
+    as a failed round, NOT as packet loss."""
+    return {"protocol": PROTOCOL, "error": message}
+
+
+def main():
+    try:
+        # Read a bounded amount: a bug on the other side must not make us read forever.
+        req = json.loads(sys.stdin.read(64 * 1024))
+        if req.get("protocol") != PROTOCOL:
+            answer = failure("unsupported protocol")
+        elif not isinstance(req.get("packets"), int) or not 1 <= req["packets"] <= 1000:
+            answer = failure("packets out of range")
+        else:
+            answer = probe(req)
+    except (ValueError, KeyError, TypeError) as e:
+        answer = failure("bad request: %s" % e)
+    json.dump(answer, sys.stdout)
+    sys.stdout.write("\n")
+
+
+if __name__ == "__main__":
+    main()

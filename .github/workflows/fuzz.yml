@@ -1,0 +1,35 @@
+name: fuzz
+
+# Everything that reads input we do not control is fuzzed: a prober's manifest and
+# answer, a user's options, a targets file. `go test` already runs the seeds on every
+# push; this job spends 30 seconds per target looking for NEW inputs, weekly and on
+# pull requests. A failing input is written to testdata/fuzz/ by the runner and shows
+# in the log: commit it, and it becomes a regression test.
+on:
+  pull_request:
+    paths: ['**.go', 'go.mod', 'docs/conformance/**', '.github/workflows/fuzz.yml']
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - FuzzParseManifest
+          - FuzzParseRoundResult
+          - FuzzNormalizeOptions
+          - FuzzFromFileRow
+          - FuzzNormalizeTarget
+          - FuzzRobustZ
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with: { go-version-file: go.mod }
+      - run: go test -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime 30s .

@@ -1,0 +1,1068 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>fogping — link quality oscilloscope</title>
+<style>
+  /* Palettes are built around one mechanic: the chart colours each sample by how far
+     it sits from that round's median, walking --smoke-hot -> mid -> cool as deviation
+     grows, with opacity falling from .5 to .1 along the way. So the three smoke stops
+     are not one colour dimmed three times — they are a temperature ramp. The samples
+     hugging the median burn bright and warm, the outliers cool and fade, and the
+     median line rides on top in a hue borrowed from neither end of that ramp.
+     Bauhaus supplies the discipline (hue carries meaning, not decoration), Anderson
+     the ground (desaturated field, one saturated accent). Loss red is reserved and
+     appears nowhere except failure. */
+
+  /* Signal — cyan trace over a cloud that burns from white-gold to cold ember. */
+  :root {
+    --bg:#14161a; --panel:#1c2027; --screen:#0d0f13; --line:#2b323c; --ctl:#676d76;
+    --phos:#22d3ee; --amber:#fbbf24; --alert:#fb3b53; --ink:#c0c6ce; --dim:#7e8a94;
+    --grid-axis:#333b47; --grid-split:#1c222a;
+    /* Compare (dashed) line. Dark themes reuse --dim (>=4.5:1 on --screen); the
+       light themes' --dim is only ~3.5:1, so each gets a darker grey of its own. */
+    --cmp:#78848f;
+    --smoke:rgba(251,191,36,.20); --lossbar:rgba(251,59,83,.7); --glow:5;
+    --smoke-hot:#b86e14; --smoke-mid:#8c3f0d; --smoke-cool:#452740;
+    --shadow:0 1px 2px rgba(0,0,0,.45); --shadow-lg:0 12px 32px rgba(0,0,0,.45);
+    --mono: ui-monospace,"SF Mono","Cascadia Mono",Consolas,"Noto Sans Mono",monospace;
+    /* Interface text gets the system UI face; numbers and axis labels stay monospace
+       so digits line up and keep the instrument feel. Mixing the two is what separates
+       a product from terminal output. */
+    --sans: system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    /* A real scale instead of everything crowded between 10 and 13px. */
+    --fs-micro:10px; --fs-small:11px; --fs-body:13px; --fs-lead:15px;
+    --fs-title:19px; --fs-metric:30px;
+  }
+
+  /* Daylight — ink on lab paper. Core burns terracotta, edges cool to slate. */
+  html[data-theme="daylight"] {
+    --bg:#f2efe6; --panel:#fbf9f3; --screen:#fffdf7; --line:#ddd6c4; --ctl:#878780;
+    --phos:#1d4ed8; --amber:#954407; --alert:#be123c; --ink:#3e4346; --dim:#6f6b5f;
+    --grid-axis:#cdc6b2; --grid-split:#e9e3d3; --cmp:#6b6656;
+    --smoke:rgba(180,83,9,.22); --lossbar:rgba(190,18,60,.6); --glow:0;
+    --smoke-hot:#e07a3a; --smoke-mid:#e8a878; --smoke-cool:#cfc8b8;
+    --shadow:0 1px 3px rgba(80,70,40,.12); --shadow-lg:0 12px 30px rgba(80,70,40,.16);
+  }
+
+  /* Arctic — near-black trace. Cloud runs from deep sea to pale frost. */
+  html[data-theme="arctic"] {
+    --bg:#eaeff4; --panel:#f7fafc; --screen:#fdfeff; --line:#d3dce5; --ctl:#7d8693;
+    --phos:#0f172a; --amber:#036093; --alert:#d02222; --ink:#3a4353; --dim:#5f6c79;
+    --grid-axis:#c2cdd8; --grid-split:#e2e9f0; --cmp:#5b6878;
+    --smoke:rgba(56,132,199,.22); --lossbar:rgba(220,38,38,.55); --glow:0;
+    --smoke-hot:#4a9fd4; --smoke-mid:#8dc0e0; --smoke-cool:#cfe0ec;
+    --shadow:0 1px 3px rgba(30,50,70,.10); --shadow-lg:0 12px 30px rgba(30,50,70,.14);
+  }
+
+  /* Budapest — Anderson's plum and rose. Core is deep raspberry, edges go powder. */
+  html[data-theme="budapest"] {
+    --bg:#f7ebe8; --panel:#fdf5f2; --screen:#fffaf8; --line:#e6cfc8; --ctl:#948280;
+    --phos:#5b2a4f; --amber:#8d492c; --alert:#c1362f; --ink:#4c3d41; --dim:#7f636a;
+    --grid-axis:#dcc0b8; --grid-split:#f0e0da; --cmp:#7d5f66;
+    --smoke:rgba(216,133,140,.26); --lossbar:rgba(193,54,47,.55); --glow:0;
+    --smoke-hot:#e0748c; --smoke-mid:#eaa8ae; --smoke-cool:#f0dbd2;
+    --shadow:0 1px 3px rgba(120,80,80,.12); --shadow-lg:0 12px 30px rgba(120,80,80,.16);
+  }
+
+  /* Amber CRT — a VT220 left on overnight. The cloud is pure phosphor decay:
+     white-hot core, amber body, dying green at the fringe, exactly how a long
+     persistence tube fades. The trace stays a cooler gold so it sits above it. */
+  html[data-theme="amber"] {
+    --bg:#12100a; --panel:#1c1810; --screen:#0a0806; --line:#38301c; --ctl:#71664a;
+    --phos:#ffd75e; --amber:#ffd98a; --alert:#ff5f2e; --ink:#cebd95; --dim:#958051;
+    --grid-axis:#443a20; --grid-split:#1e1a10; --cmp:#8f7b4e;
+    --smoke:rgba(255,176,0,.20); --lossbar:rgba(255,95,46,.65); --glow:7;
+    --smoke-hot:#a86a10; --smoke-mid:#7d4508; --smoke-cool:#2f4429;
+    --shadow:0 1px 2px rgba(0,0,0,.6); --shadow-lg:0 12px 32px rgba(0,0,0,.55);
+  }
+
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--bg); color:var(--ink); font-family:var(--sans);
+         font-size:var(--fs-body); line-height:1.5; padding:20px 24px;
+         -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; }
+  header { display:flex; align-items:baseline; gap:14px; margin-bottom:14px; flex-wrap:wrap; }
+  .mark { color:var(--phos); font-family:var(--mono); font-weight:700;
+          font-size:26px; letter-spacing:.03em; display:flex; align-items:center; gap:9px; }
+  .tag { color:var(--dim); font-size:var(--fs-small); font-weight:400; letter-spacing:.01em; }
+  .row { display:flex; gap:12px; align-items:flex-start; margin-bottom:14px; flex-wrap:wrap; }
+  .pills { display:flex; gap:8px; flex-wrap:wrap; }
+  .pill { font-family:var(--sans); font-size:var(--fs-body); font-weight:500;
+          background:var(--panel); color:var(--ink);
+          border:1px solid var(--line); border-radius:6px; padding:7px 14px; cursor:pointer;
+          display:flex; align-items:center; gap:8px; transition:border-color .12s, color .12s; }
+  .pill.on { border-color:var(--phos); color:var(--phos); font-weight:600; }
+  .led { width:8px; height:8px; border-radius:50%; background:var(--phos); box-shadow:0 0 6px var(--phos); }
+  .led.warn { background:#d9a400; box-shadow:0 0 6px #d9a400; }
+  .led.bad { background:var(--alert); box-shadow:0 0 6px var(--alert); }
+  /* Brand dot: alternates the two colours already used for host status (green =
+     healthy, red = down), so the same signal that reads "up/down" on a target row
+     reads "alive" at the letterhead — a small mnemonic, not a new colour language. */
+  .brand-led { width:11px; height:11px; border-radius:50%; flex:none;
+               animation: brand-blink 2.4s ease-in-out infinite; }
+  @keyframes brand-blink {
+    0%, 45%   { background:var(--phos); box-shadow:0 0 8px var(--phos); }
+    50%, 95%  { background:var(--alert); box-shadow:0 0 8px var(--alert); }
+    100%      { background:var(--phos); box-shadow:0 0 8px var(--phos); }
+  }
+  @media (prefers-reduced-motion: reduce) { .brand-led { animation:none; background:var(--phos); } }
+  .rng { display:flex; background:var(--panel); border:1px solid var(--line); border-radius:4px; overflow:hidden; }
+  .rng span { color:var(--dim); font-family:var(--sans); font-size:var(--fs-micro);
+              font-weight:600; padding:9px 10px 0 12px; letter-spacing:.14em; }
+  .rng button { font-family:var(--mono); font-size:var(--fs-small); background:none; border:0;
+                color:var(--dim); padding:8px 13px; cursor:pointer; transition:color .12s; }
+  .rng button:hover { color:var(--ink); }
+  .rng button.on { background:color-mix(in srgb, var(--amber) 15%, transparent);
+                   color:var(--amber); font-weight:700; }
+  /* Compare: one dropdown next to TIME/DIV, same panel style */
+  .rng select { font-family:var(--sans); font-size:var(--fs-small); background:none; border:0;
+                color:var(--ink); padding:7px 10px 7px 4px; cursor:pointer; }
+  .rng select:focus { outline:none; color:var(--phos); }
+  .rng select option { background:var(--panel); color:var(--ink); }
+  .rng select option:disabled { color:var(--dim); }
+  .scope { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:14px; }
+  .crt { position:relative; }
+  #chart { height:420px; background:var(--screen); border-radius:4px; }
+  html:not([data-theme]) .crt::after {
+    content:""; position:absolute; inset:0; border-radius:4px; pointer-events:none;
+    background:
+      repeating-linear-gradient(0deg, transparent 0 3px, rgba(0,0,0,.045) 3px 4px),
+      radial-gradient(120% 90% at 50% 42%, transparent 55%, rgba(0,0,0,.38) 100%);
+  }
+  .readouts { display:flex; gap:34px; margin-top:12px; flex-wrap:wrap; align-items:flex-end; }
+  .ro .v { font-family:var(--mono); font-size:var(--fs-metric); font-weight:600;
+           color:var(--phos); line-height:1.1; font-variant-numeric:tabular-nums; }
+  .ro .v.bad { color:var(--alert); }
+  .ro .l { font-family:var(--sans); font-size:var(--fs-micro); font-weight:600;
+           color:var(--dim); letter-spacing:.13em; margin-top:4px; text-transform:uppercase; }
+  .sp { flex:1; }
+  footer { margin-top:14px; color:var(--dim); font-size:var(--fs-small);
+           display:flex; gap:14px; flex-wrap:wrap; align-items:baseline; }
+  #conclusion { color:var(--ink); font-family:var(--mono); font-weight:600;
+                font-size:var(--fs-body); }
+  .legend { color:var(--dim); font-family:var(--sans); font-size:var(--fs-small); }
+  .site-foot { margin-top:16px; }
+  .foot-card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px;
+           box-shadow:var(--shadow); text-decoration:none; display:block; }
+  .foot-name { font-family:var(--sans); font-size:var(--fs-micro); font-weight:700;
+             letter-spacing:.16em; color:var(--dim); margin-bottom:7px; text-transform:uppercase; }
+  .foot-body { color:var(--ink); font-size:var(--fs-body); display:flex; gap:16px;
+             align-items:center; justify-content:space-between; flex-wrap:wrap; }
+  .foot-body a { color:var(--phos); text-decoration:none; font-weight:600; white-space:nowrap; }
+  .foot-body a:hover { text-decoration:underline; }
+  .foot-name #ver { color:var(--phos); font-family:var(--mono); letter-spacing:0; font-weight:600; }
+  /* Target editor — only rendered when the server runs with --edit. */
+  .tgt { margin-bottom:14px; }
+  .tgt table { width:100%; border-collapse:collapse; font-size:var(--fs-body); }
+  .tgt th { color:var(--dim); font-size:var(--fs-micro); font-weight:600; letter-spacing:.13em;
+            text-transform:uppercase; text-align:left; padding:0 10px 6px 0; }
+  .tgt td { padding:6px 10px 6px 0; border-top:1px solid var(--line); }
+  .tgt td.mono { font-family:var(--mono); font-size:var(--fs-small); }
+  .tgt td.act { text-align:right; white-space:nowrap; }
+  .tgt .lnk { background:none; border:0; color:var(--phos); cursor:pointer; font:inherit; padding:0 0 0 12px; }
+  .tgt .lnk.del { color:var(--alert); }
+  .tgt form { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:12px; }
+  .tgt input, .tgt select { font-family:var(--mono); font-size:var(--fs-small); color:var(--ink);
+            background:var(--screen); border:1px solid var(--ctl); border-radius:4px; padding:6px 8px; }
+  .tgt input:focus, .tgt select:focus { outline:none; border-color:var(--phos); }
+  #tgtErr { color:var(--alert); font-size:var(--fs-small); }
+  /* Export / import of the target list (netping-targets file). */
+  .ie { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:12px; }
+  .ie a.pill { text-decoration:none; }
+  .ie .hint { color:var(--dim); font-size:var(--fs-small); }
+  #ieMsg { font-size:var(--fs-small); color:var(--phos); }
+  #ieMsg.bad { color:var(--alert); }
+  .tgt.drop { outline:2px dashed var(--phos); outline-offset:4px; }
+  .ie-prev { margin-top:12px; padding:12px; border:1px solid var(--line); border-radius:6px; }
+  .ie-prev .ttl { font-weight:600; margin-bottom:6px; }
+  .ie-prev .note { color:var(--amber); font-size:var(--fs-small); margin-bottom:8px; }
+  .ie-prev .sum { font-size:var(--fs-small); color:var(--dim); margin-bottom:6px; }
+  .ie-prev .sum b { color:var(--ink); }
+  .ie-prev .rows { max-height:280px; overflow:auto; margin-bottom:10px; }
+  .ie-prev td.st { font-family:var(--mono); font-size:var(--fs-small); white-space:nowrap; }
+  .ie-prev tr.add td.st { color:var(--phos); }
+  .ie-prev tr.skip td.st { color:var(--dim); }
+  .ie-prev tr.invalid td.st, .ie-prev tr.invalid td.why { color:var(--alert); }
+  .ie-prev td.why { color:var(--dim); font-size:var(--fs-small); }
+  .ie-prev .btns { display:flex; gap:8px; }
+  .ie-prev button:disabled { opacity:.5; cursor:default; }
+  /* Accessibility. --ctl is the border of a form control: --line is a hairline
+     between panels (decoration), but a text field is only recognisable by its edge,
+     which WCAG 1.4.11 wants at 3:1. Focus rings use the accent for the same reason. */
+  :focus-visible { outline:2px solid var(--phos); outline-offset:2px; }
+  .skip { position:absolute; left:12px; top:-60px; z-index:20; background:var(--panel); color:var(--phos);
+          border:2px solid var(--phos); border-radius:6px; padding:8px 14px; font-weight:600; text-decoration:none; }
+  .skip:focus { top:12px; }
+  .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden;
+             clip:rect(0 0 0 0); white-space:nowrap; border:0; }
+  h1.mark { margin:0; }
+  #main:focus { outline:none; }
+  .rng { flex-wrap:wrap; max-width:100%; }
+  .rng.cmp, .rng.custom { border-color:var(--ctl); }
+  .rng.custom input { min-width:0; max-width:100%; }
+  .foot-body a, .tgt .lnk { display:inline-flex; align-items:center; min-height:24px; }
+  .foot-body > span { flex-wrap:wrap; max-width:100%; }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to chart</a>
+<header>
+  <h1 class="mark">fogping <span class="brand-led" aria-hidden="true"></span></h1>
+  <div class="tag">One binary. One graph. One metric: Latency.</div>
+  <div style="margin-left:auto; display:flex; gap:8px">
+    <button class="pill" id="editBtn" title="add, edit or remove targets" style="display:none">✎ targets</button>
+    <a class="pill" id="exportPill" href="/api/targets/export" download style="display:none;text-decoration:none" title="Download the active targets as a JSON file">⇩ targets</a>
+    <button class="pill" id="themeBtn" title="switch theme">◐ <span id="themeName">dark</span></button>
+  </div>
+</header>
+
+<main id="main" tabindex="-1">
+<div class="row">
+  <div class="rng" id="tfilter" style="display:none">
+    <button data-t="all" class="on">All</button>
+  </div>
+  <div class="pills" id="pills"></div>
+</div>
+
+<section class="scope tgt" id="tgtPanel" style="display:none" aria-labelledby="tgtTitle">
+  <h2 class="sr-only" id="tgtTitle">Targets</h2>
+  <table>
+    <thead><tr><th>Name</th><th>Type</th><th>Address</th><th>Pace</th><th>Interval</th><th></th></tr></thead>
+    <tbody id="tgtRows"></tbody>
+  </table>
+  <form id="tgtForm" autocomplete="off">
+    <label class="sr-only" for="fType">Type</label>
+    <select id="fType"></select>
+    <label class="sr-only" for="fHost">Host or IP</label>
+    <input id="fHost" placeholder="host or IP" size="22" required>
+    <label class="sr-only" for="fPort">Port</label>
+    <input id="fPort" type="number" min="1" max="65535" placeholder="port" style="width:84px; display:none">
+    <label class="sr-only" for="fName">Name (optional)</label>
+    <input id="fName" placeholder="name (optional)" size="18" maxlength="64">
+    <label class="sr-only" for="fPace">Pace</label>
+    <select id="fPace"><option value="normal">normal · 60s</option><option value="fast">fast · 15s</option><option value="slow">slow · 300s</option></select>
+    <label class="sr-only" for="fIv">Interval in seconds (overrides pace)</label>
+    <input id="fIv" type="number" min="1" max="86400" placeholder="interval (s)" style="width:112px" title="overrides pace">
+    <span id="fOpts"></span>
+    <button class="pill" id="fSave" type="submit">+ add</button>
+    <button class="pill" id="fCancel" type="button" style="display:none">cancel</button>
+    <span id="tgtErr" role="alert"></span>
+  </form>
+  <div class="ie">
+    <a class="pill" id="ieExport" href="/api/targets/export" download title="Download the active targets as a JSON file">⇩ export</a>
+    <button class="pill" id="ieImport" type="button" title="Add targets from a JSON file — you see a preview first">⇧ import…</button>
+    <input type="file" id="ieFile" accept=".json,application/json" hidden>
+    <span class="hint">or drop a .json file on this panel</span>
+    <span id="ieMsg" role="status"></span>
+  </div>
+  <div class="ie-prev" id="iePreview" style="display:none">
+    <div class="ttl" id="ieTitle"></div>
+    <div class="note">⚠ Importing makes this host probe every address listed below. Only import files you trust.</div>
+    <div class="sum" id="ieSum"></div>
+    <div class="rows"><table><tbody id="ieRows"></tbody></table></div>
+    <div class="btns">
+      <button class="pill" id="ieGo" type="button">Import</button>
+      <button class="pill" id="ieCancel" type="button">cancel</button>
+    </div>
+  </div>
+</section>
+
+<section class="scope" aria-labelledby="chartTitle">
+  <h2 class="sr-only" id="chartTitle">Latency and packet loss</h2>
+  <div class="crt"><div id="chart" role="img" aria-label="Latency and packet-loss chart" aria-describedby="chartSum"></div></div>
+  <div class="sr-only" id="chartText">
+    <p id="chartSum"></p>
+    <table><caption>Chart data, oldest first</caption>
+      <thead><tr><th scope="col">Time</th><th scope="col">Median RTT (ms)</th><th scope="col">Worst loss (%)</th><th scope="col">Bursts</th></tr></thead>
+      <tbody id="chartRows"></tbody></table>
+  </div>
+  <div class="readouts">
+    <div class="ro"><div class="v" id="p50">–</div><div class="l">P50 MS</div></div>
+    <div class="ro"><div class="v" id="p90">–</div><div class="l">P90 MS</div></div>
+    <div class="ro"><div class="v" id="p99">–</div><div class="l">P99 MS</div></div>
+    <div class="ro"><div class="v" id="loss">–</div><div class="l">LOSS %</div></div>
+    <div class="ro"><div class="v" id="bursts">–</div><div class="l">BURSTS · WINDOW</div></div>
+    <div class="sp"></div>
+    <div class="rng">
+      <button id="selReset" style="display:none;color:var(--amber)">✕ selection</button><span>TIME/DIV</span>
+      <button data-m="60">1h</button>
+      <button data-m="240" class="on">4h</button>
+      <button data-m="480">8h</button>
+      <button data-m="1440">1d</button>
+      <button data-m="4320">3d</button>
+      <button data-m="7200">5d</button>
+      <button data-m="10080">7d</button>
+      <button data-m="20160">14d</button>
+      <button data-m="43200">30d</button>
+      <button data-m="86400">60d</button>
+      <button data-m="129600">90d</button>
+      <button data-m="133920">93d</button>
+    </div>
+    <div class="rng cmp" title="Overlay the median of an earlier period as a dashed line. Periods older than the retention window are unavailable.">
+      <span>COMPARE</span>
+      <select id="cmpMode" aria-label="compare">
+        <option value="off">Off</option>
+        <option value="prev">Previous period</option>
+        <option value="day">Yesterday, same time</option>
+        <option value="week">Last week, same time</option>
+      </select>
+    </div>
+    <div class="rng custom">
+      <label class="sr-only" for="customFrom">From</label>
+      <input type="datetime-local" id="customFrom" step="60">
+      <span class="sep" aria-hidden="true">→</span>
+      <label class="sr-only" for="customTo">To</label>
+      <input type="datetime-local" id="customTo" step="60">
+      <button id="customGo">Go</button>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <span id="conclusion"></span>
+  <span class="legend" id="legend">Line = per-round median · Smoke = all samples · Red bars = loss% · ◆ = burst</span>
+</footer>
+
+<div class="site-foot">
+  <div class="foot-card">
+    <div class="foot-body">
+      <span class="foot-name" style="margin:0">fogping <span id="ver"></span></span>
+      <span style="display:flex; gap:16px; align-items:center;">
+        <a href="https://github.com/githubflyideas/fogping" target="_blank" rel="noopener">fogping on GitHub</a>
+      </span>
+    </div>
+  </div>
+</div>
+
+<script src="/static/echarts.min.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const THEMES = ['dark', 'daylight', 'arctic', 'budapest', 'amber'];
+let theme = localStorage.getItem('pp_theme') || 'dark';
+if (!THEMES.includes(theme)) theme = 'dark';
+function applyTheme() {
+  if (theme === 'dark') delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = theme;
+  const el = $('themeName'); if (el) el.textContent = theme;
+}
+applyTheme();
+let targets = [], current = null, minutes = 240, typeFilter = 'all';
+
+// Deep link: /#t=NAME&m=1440 — send "this link, this window" to a colleague
+const hp = new URLSearchParams(location.hash.slice(1));
+if (hp.get('m') && [60,360,720,1440].includes(+hp.get('m'))) minutes = +hp.get('m');
+if (hp.get('t')) current = hp.get('t');
+document.querySelectorAll('.rng button[data-m]').forEach(b => b.classList.toggle('on', +b.dataset.m === minutes));
+
+const chart = echarts.init($('chart'));
+
+
+
+// The probe types come from the server, so a new prober needs no change here.
+let probeTypes = [];
+function typeInfo(type) {
+  return probeTypes.find(p => p.type === type) || { type, label: String(type).toUpperCase(), uses_port: false };
+}
+async function loadProbeTypes() {
+  try { probeTypes = await (await fetch('/api/probe-types')).json() || []; } catch (e) { probeTypes = []; }
+  const tf = $('tfilter');
+  tf.querySelectorAll('button:not([data-t="all"])').forEach(b => b.remove());
+  const sel = $('fType'); sel.innerHTML = '';
+  probeTypes.forEach(p => {
+    const b = document.createElement('button'); b.dataset.t = p.type; b.textContent = p.label; tf.append(b);
+    const o = document.createElement('option'); o.value = p.type; o.textContent = p.label; sel.append(o);
+  });
+}
+
+async function loadTargets() {
+  if (!probeTypes.length) await loadProbeTypes();
+  targets = await (await fetch('/api/targets')).json() || [];
+  const kinds = new Set(targets.map(t => t.type));
+  $('tfilter').style.display = kinds.size > 1 ? '' : 'none';
+  drawTargetTable();
+  const visible = targets.filter(t => typeFilter === 'all' || t.type === typeFilter);
+  const pills = $('pills'); pills.innerHTML = '';
+  visible.forEach(t => {
+    const b = document.createElement('button');
+    b.className = 'pill' + (t.name === current ? ' on' : '');
+    const led = document.createElement('span');
+    led.className = 'led' + (t.down ? ' bad' : t.probe_error ? ' warn' : '');
+    if (t.probe_error) b.title = t.probe_error; // could not measure: not the target's fault, not loss
+    b.append(led, document.createTextNode(t.name)); // names are user-editable: never innerHTML
+    b.onclick = () => { current = t.name; render(); };
+    pills.appendChild(b);
+  });
+  if ((!current || !visible.some(t => t.name === current)) && visible.length) current = visible[0].name;
+}
+
+let sel = null; // {from,to} 自定义查询区间(unix 秒)
+
+// ---- Compare overlay ("same period" dashed line) ----
+// Fetch the same target for an earlier window (the current window moved back by
+// shift seconds), then add shift back to the timestamps so it lies over the
+// current window. /api/series already takes from/to, so the server needs nothing.
+// The mode lives in memory only, like the time window.
+let cmpMode = 'off';
+let cmpData = null;      // the compare line currently drawn, for the tooltip
+let cmpInflight = null;  // own AbortController; a new render aborts it too
+let retentionSec = 0;    // /api/version retention_days; 0 = unknown yet, no limit
+// Raw samples are kept hot_days; older than that only hourly rows exist. Taken
+// from /api/version; falls back to the default 2 days (older server / not back yet).
+let rawKeepSec = 2 * 86400;
+const CMP_TIMEOUT = 15000; // give up on the compare fetch after 15 s ("unavailable")
+const CMP_NAMES = { prev: 'Previous period', day: 'Yesterday, same time', week: 'Last week, same time' };
+const cmpShift = (mode, w) => mode === 'prev' ? w : mode === 'day' ? 86400 : mode === 'week' ? 604800 : 0;
+// Current window [from,to] in unix seconds. Preset windows use the local clock.
+function curWindow() {
+  if (sel) return { from: sel.from, to: sel.to };
+  const to = Math.floor(Date.now() / 1000);
+  return { from: to - minutes * 60, to };
+}
+// The whole comparison period must be inside retention: from - shift >= now - retention.
+function cmpValid(mode, win) {
+  if (mode === 'off') return true;
+  if (!retentionSec) return true;
+  const now = Math.floor(Date.now() / 1000);
+  return (now - win.from) + cmpShift(mode, win.to - win.from) <= retentionSec;
+}
+// Grey out modes that can't be served; fall back to Off if the current one became
+// invalid. Returns whether it fell back.
+function syncCmpOptions(win) {
+  const box = $('cmpMode');
+  [...box.options].forEach(o => {
+    if (o.value === 'off') return;
+    o.disabled = !cmpValid(o.value, win);
+    o.title = o.disabled ? 'Beyond retention' : '';
+  });
+  const fell = !cmpValid(cmpMode, win);
+  if (fell) cmpMode = 'off';
+  box.value = cmpMode;
+  return fell;
+}
+
+// Row -> median, shared by the main chart and the compare line. Raw rounds carry
+// samples (median of the sorted samples); hourly buckets carry five percentiles
+// [min,p50,p90,p99,max] and the median is q[1] — sorting those five and taking the
+// middle would give P90, not a median.
+function roundMedian(r) {
+  const srt = (r.ms && r.ms.length) ? [...r.ms].sort((a,b)=>a-b) : [];
+  return { srt, med: srt.length ? srt[Math.floor(srt.length/2)] : 0 };
+}
+const bucketMedian = b => b.q ? b.q[1] : undefined;
+// [[ts_ms, median], ...] for a whole /api/series response, shifted by shiftSec.
+function medianLine(d, shiftSec = 0) {
+  const off = shiftSec * 1000, out = [];
+  if (d.tier === 'hourly') {
+    (d.buckets || []).forEach(b => { const m = bucketMedian(b); if (m !== undefined) out.push([b.t * 1000 + off, m]); });
+  } else {
+    (d.rounds || []).forEach(r => { const { srt, med } = roundMedian(r); if (srt.length) out.push([r.t * 1000 + off, med]); });
+  }
+  return out;
+}
+
+// Fetch the comparison period. Superseded by a newer render -> null (silent). Any
+// other failure (HTTP error, network, bad JSON, timeout) -> { failed: true } and the
+// legend says "comparison data unavailable"; the main chart is never affected.
+// Success with no rows (new install, not enough history) -> { empty: true }.
+async function fetchCompare(name, win, mode) {
+  const shift = cmpShift(mode, win.to - win.from);
+  const from = win.from - shift, to = win.to - shift;
+  let reqFrom = from;
+  // The server picks the tier by span: <=24h reads raw rounds. If the shifted window
+  // is older than the raw tier keeps, raw is empty — so widen the request to ~25h to
+  // get hourly buckets back, then trim them to [from,to].
+  const now = Math.floor(Date.now() / 1000);
+  const widen = (to - from) <= 86400 && from < now - rawKeepSec - 3600;
+  if (widen) reqFrom = to - 86400 - 3600;
+  if (cmpInflight) cmpInflight.abort();
+  const ctl = new AbortController();
+  cmpInflight = ctl;
+  // The timeout uses the same controller; timedOut tells it apart from "superseded".
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; ctl.abort(); }, CMP_TIMEOUT);
+  try {
+    const res = await fetch(`/api/series?target=${encodeURIComponent(name)}&from=${reqFrom}&to=${to}`, { signal: ctl.signal });
+    if (!res.ok) return { mode, failed: true };
+    const d = await res.json() || {};
+    if (widen && d.tier === 'hourly') d.buckets = (d.buckets || []).filter(b => b.t > from - 3600 && b.t <= to);
+    const pts = medianLine(d, shift);
+    if (!pts.length) return { mode, empty: true };
+    // The hour bucket straddling the window start is stamped at its start, so after
+    // the shift it would land left of the window and widen the x axis: clamp it.
+    if (pts[0][0] < win.from * 1000) pts[0][0] = win.from * 1000;
+    const hourly = d.tier === 'hourly';
+    // Raw points are one probe interval apart; the tooltip uses that as "nearby".
+    let gap = 3600e3;
+    if (!hourly && pts.length > 1) {
+      const ds = pts.slice(1).map((p, i) => p[0] - pts[i][0]).sort((a,b)=>a-b);
+      gap = ds[Math.floor(ds.length/2)] || 60e3;
+    }
+    return { mode, hourly, pts, gap };
+  } catch {
+    return (ctl.signal.aborted && !timedOut) ? null : { mode, failed: true };
+  } finally {
+    clearTimeout(timer);
+    if (cmpInflight === ctl) cmpInflight = null;
+  }
+}
+// Compare value at hover time ts. Hourly rows: the bucket containing ts; raw: nearest round.
+function cmpValueAt(cmp, ts) {
+  if (!cmp || !cmp.pts.length) return undefined;
+  const a = cmp.pts;
+  let lo = 0, hi = a.length - 1;
+  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (a[mid][0] <= ts) lo = mid; else hi = mid - 1; }
+  if (cmp.hourly) return (a[lo][0] <= ts && ts - a[lo][0] < 3600e3) ? a[lo][1] : undefined;
+  let best = a[lo];
+  if (lo + 1 < a.length && Math.abs(a[lo+1][0] - ts) < Math.abs(best[0] - ts)) best = a[lo+1];
+  return Math.abs(best[0] - ts) <= cmp.gap * 0.6 ? best[1] : undefined;
+}
+// Round up to 1/2/2.5/5 x 10^n so the top Y tick is a round number.
+function niceCeil(v) {
+  const p = Math.pow(10, Math.floor(Math.log10(v)));
+  for (const k of [1, 2, 2.5, 5, 10]) if (v <= k * p) return k * p;
+  return 10 * p;
+}
+// Text alternative for the canvas (WCAG 1.1.1): the window in one sentence, and the
+// history in at most 12 equal slices, so the shape of the curve is not visual-only.
+function describeChart(t, winLabel, info, st) {
+  const ts = Object.keys(info).map(Number).sort((a, b) => a - b);
+  const meds = ts.map(k => info[k].hourly ? (info[k].q ? info[k].q[1] : undefined) : (info[k].n ? info[k].med : undefined))
+                 .filter(v => v !== undefined);
+  let sum = `${t.name}${t.down ? ' (down)' : ''}, ${winLabel}: P50 ${st.p50} ms, P90 ${st.p90} ms, P99 ${st.p99} ms, loss ${st.loss}%, ${st.bursts} bursts.`;
+  if (meds.length) sum += ` Median RTT ranged from ${Math.min(...meds).toFixed(1)} to ${Math.max(...meds).toFixed(1)} ms over ${ts.length} ${info[ts[0]].hourly ? 'hours' : 'rounds'}.`;
+  else sum += ' No replies in this window.';
+  $('chartSum').textContent = sum;
+  const rows = $('chartRows'); rows.replaceChildren();
+  const n = Math.min(12, ts.length), when = ms => new Date(ms).toLocaleString([], { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  for (let i = 0; i < n; i++) {
+    const part = ts.slice(Math.floor(i * ts.length / n), Math.floor((i + 1) * ts.length / n));
+    if (!part.length) continue;
+    const m = part.map(k => info[k].hourly ? (info[k].q ? info[k].q[1] : undefined) : (info[k].n ? info[k].med : undefined)).filter(v => v !== undefined).sort((a, b) => a - b);
+    const loss = Math.max(...part.map(k => info[k].lp || 0));
+    const b = part.reduce((a, k) => a + (info[k].hourly ? info[k].bursts : (info[k].b ? 1 : 0)), 0);
+    const tr = document.createElement('tr');
+    [`${when(part[0])} – ${when(part[part.length - 1])}`, m.length ? m[Math.floor(m.length / 2)].toFixed(1) : '–', loss.toFixed(1), String(b)]
+      .forEach((v, j) => { const c = document.createElement(j ? 'td' : 'th'); if (!j) c.scope = 'row'; c.textContent = v; tr.append(c); });
+    rows.append(tr);
+  }
+}
+let renderSeq = 0;
+let inflight = null; // 正在飞的 series 请求 —— 新请求发起前先掐掉它,
+                     // 否则快速点击会在服务端堆起一串没人要的慢查询,互相拖死。
+let rendering = false; // 一次渲染(含慢速 band 查询)是否仍在进行
+async function render() {
+  const seq = ++renderSeq;
+  rendering = true;
+  try {
+    await renderInner(seq);
+  } finally {
+    if (seq === renderSeq) rendering = false; // 只有最新一次才解锁
+  }
+}
+
+async function renderInner(seq) {
+  await loadTargets();
+  // Superseded by a newer render: leave now. Otherwise the abort() below would kill
+  // the newest render's request and the chart would stay on the old window.
+  if (seq !== renderSeq) return;
+  const t = targets.find(x => x.name === current);
+  if (!t) return;
+  let url = `/api/series?target=${encodeURIComponent(current)}`;
+  if (sel) url += `&from=${sel.from}&to=${sel.to}`;
+  else url += `&minutes=${minutes}`;
+  if (inflight) inflight.abort();
+  if (cmpInflight) { cmpInflight.abort(); cmpInflight = null; }
+  const ctl = new AbortController();
+  inflight = ctl;
+  // The comparison period is fetched in parallel; the main chart draws first and
+  // the dashed line is added when it arrives.
+  const win = curWindow();
+  syncCmpOptions(win);
+  const mode = cmpMode;
+  const cmpP = mode !== 'off' ? fetchCompare(current, win, mode) : Promise.resolve(null);
+  let d;
+  try {
+    d = await (await fetch(url, { signal: ctl.signal })).json() || {};
+  } catch (e) {
+    if (e.name === 'AbortError') return; // 被新点击取代,静默退出
+    throw e;
+  } finally {
+    if (inflight === ctl) inflight = null;
+  }
+  if (seq !== renderSeq) return; // 过期响应:已切走,丢弃
+
+  // Two kinds of rows. Raw rounds carry samples; hourly buckets carry five
+  // percentiles [min,p50,p90,p99,max]. They are not interchangeable: sorting a
+  // bucket's five numbers and taking the middle one yields its P90, not a median.
+  const hourly = d.tier === 'hourly';
+  const smoke = [], median = [], lossBars = [], burstPts = [];
+  const roundInfo = {};
+  let bursts = 0, lossPct = 0, p50, p90, p99;
+  if (!hourly) {
+    let sent = 0, recv = 0;
+    const pool = [];
+    (d.rounds || []).forEach(r => {
+      const ts = r.t * 1000;
+      const { srt, med: rmed } = roundMedian(r);
+      if (srt.length) median.push([ts, rmed]);
+      srt.forEach(v => {
+        smoke.push([ts, v, rmed ? Math.abs(v - rmed) / rmed : 0]); // 维度2 = 偏离该轮中位数的比例
+        pool.push(v);
+      });
+      sent += r.s; recv += r.r;
+      const lp = r.s ? (r.s - r.r) / r.s * 100 : 0;
+      if (lp > 0) lossBars.push([ts, lp]);
+      if (r.b) { bursts++; burstPts.push([ts, lp, `z-score ${r.z ? r.z.toFixed(2) : '—'} · loss ${lp.toFixed(0)}% (${r.s - r.r}/${r.s})`]); }
+      let avg = 0, mdev = 0;
+      if (srt.length) {
+        avg = srt.reduce((a,v)=>a+v,0) / srt.length;
+        mdev = Math.sqrt(srt.reduce((a,v)=>a+(v-avg)*(v-avg),0) / srt.length);
+      }
+      roundInfo[ts] = { med: rmed, lo: srt[0] || 0, hi: srt[srt.length-1] || 0, avg, mdev,
+                        n: srt.length, lp, lost: r.s - r.r, s: r.s, b: r.b, z: r.z || 0 };
+    });
+    pool.sort((a,b)=>a-b);
+    const q = p => pool[Math.min(pool.length-1, Math.floor(pool.length*p))];
+    if (pool.length) [p50, p90, p99] = [q(.5), q(.9), q(.99)];
+    lossPct = sent ? (sent-recv)/sent*100 : 0;
+  } else {
+    let lossW = 0, nW = 0;
+    const qs = [[], [], []]; // [value, weight] per P50/P90/P99
+    (d.buckets || []).forEach(b => {
+      const ts = b.t * 1000;
+      if (b.q) {
+        const m = bucketMedian(b);
+        median.push([ts, m]);
+        b.q.forEach(v => smoke.push([ts, v, m ? Math.abs(v - m) / m : 0]));
+        qs.forEach((arr, i) => arr.push([b.q[i+1], b.n]));
+      }
+      if (b.loss > 0) lossBars.push([ts, b.loss]);
+      if (b.bursts) { bursts += b.bursts; burstPts.push([ts, b.loss, `${b.bursts} burst${b.bursts > 1 ? 's' : ''} this hour · loss ${b.loss.toFixed(2)}%`]); }
+      lossW += b.loss * b.n; nW += b.n;
+      roundInfo[ts] = { hourly: true, q: b.q, n: b.n, lp: b.loss, bursts: b.bursts || 0 };
+    });
+    // Window percentiles can't be rebuilt from hourly ones; show the typical hour's
+    // (round-weighted median of the hourly values) and mark them as approximate.
+    const wmed = arr => {
+      if (!arr.length) return undefined;
+      arr.sort((a,b)=>a[0]-b[0]);
+      const half = arr.reduce((s,x)=>s+x[1],0) / 2;
+      let acc = 0;
+      for (const [v,w] of arr) { acc += w; if (acc >= half) return v; }
+      return arr[arr.length-1][0];
+    };
+    [p50, p90, p99] = qs.map(wmed);
+    lossPct = nW ? lossW / nW : 0;
+  }
+
+  const cmpName = mode !== 'off' ? CMP_NAMES[mode] + ' · P50' : '';
+  const legendBase = hourly
+    ? 'Line = hourly median · Smoke = hourly min/p50/p90/p99/max · Red bars = loss% · ◆ = bursts'
+    : 'Line = per-round median · Smoke = all samples · Red bars = loss% · ◆ = burst';
+  $('legend').textContent = legendBase + (cmpName ? ` · ┄ = ${cmpName}` : '');
+  const approx = hourly ? '≈' : '';
+  const fmt = v => v === undefined ? '–' : approx + v.toFixed(1);
+  ['p50','p90','p99'].forEach((id, i) => {
+    $(id).textContent = fmt([p50, p90, p99][i]);
+    $(id).title = hourly ? 'typical hour: round-weighted median of the hourly percentiles' : '';
+  });
+  $('loss').textContent = lossPct.toFixed(2);
+  $('loss').className = 'v' + (lossPct > 1 ? ' bad' : '');
+  $('bursts').textContent = bursts;
+  $('bursts').className = 'v' + (bursts ? ' bad' : '');
+
+  const winLabel = sel ? 'custom' : (document.querySelector('.rng button[data-m].on')?.textContent || minutes + 'm');
+  $('conclusion').textContent = (t.down ? '🔴 ' : '🟢 ') + `${t.name}: ${winLabel} P99 ${fmt(p99)} ms · loss ${lossPct.toFixed(2)}% · ${bursts} bursts`;
+  describeChart(t, winLabel, roundInfo, { p50: fmt(p50), p90: fmt(p90), p99: fmt(p99), loss: lossPct.toFixed(2), bursts });
+
+  // The main chart's own top (smoke + median); see the Y-axis guard further down.
+  let mainTop = 0;
+  smoke.forEach(p => { if (p[1] > mainTop) mainTop = p[1]; });
+  median.forEach(p => { if (p[1] > mainTop) mainTop = p[1]; });
+
+  const phos = cssv('--phos'), cmpColor = cssv('--cmp') || cssv('--dim');
+  chart.setOption({
+    animation: false,
+    grid: { left: 52, right: 46, top: 28, bottom: 42 },
+    xAxis: { type: 'time', axisLine: { lineStyle: { color: cssv('--grid-axis') } },
+             axisLabel: { color: cssv('--dim'), fontSize: 10,
+               formatter: v => {
+                 const d = new Date(v);
+                 const p = n => String(n).padStart(2, '0');
+                 // 长窗口显示日期,短窗口显示时刻;跨天时两行都给
+                 const span = sel ? (sel.to - sel.from) : minutes * 60;
+                 if (span > 86400) return `${p(d.getMonth()+1)}-${p(d.getDate())}`;
+                 if (span > 21600) return `${p(d.getMonth()+1)}-${p(d.getDate())}\n${p(d.getHours())}:${p(d.getMinutes())}`;
+                 return `${p(d.getHours())}:${p(d.getMinutes())}`;
+               } },
+             splitLine: { lineStyle: { color: cssv('--grid-split') } },
+             axisPointer: { show: true, snap: false,
+               lineStyle: { color: cssv('--dim'), opacity: .45 },
+               label: { show: true, backgroundColor: cssv('--panel'), color: cssv('--ink'),
+                        borderColor: cssv('--line'), borderWidth: 1, fontFamily: 'monospace', fontSize: 10,
+                        formatter: p => new Date(p.value).toLocaleTimeString() } } },
+    yAxis: [
+      { type: 'value', name: 'RTT ms', nameTextStyle: { color: cssv('--dim'), fontSize: 10 },
+        axisLabel: { color: cssv('--dim'), fontSize: 10 }, splitLine: { lineStyle: { color: cssv('--grid-split') } } },
+      // Loss has its own labelled axis, so the bars do not rely on colour alone.
+      { type: 'value', max: 100, name: 'loss %', nameTextStyle: { color: cssv('--dim'), fontSize: 10 },
+        axisLabel: { color: cssv('--dim'), fontSize: 10 }, splitLine: { show: false } }
+    ],
+    tooltip: { trigger: 'axis',
+      backgroundColor: cssv('--panel'), borderColor: cssv('--line'),
+      textStyle: { color: cssv('--ink'), fontSize: 11, fontFamily: 'monospace' },
+      formatter: params => {
+        // Take the time from the main median point: the (shifted) compare points are
+        // in params too and must not decide which round roundInfo looks up.
+        const mp = params.find(p => p.seriesId === 'median');
+        const ts = mp ? mp.value[0] : (params[0] && params[0].axisValue);
+        const i = roundInfo[ts];
+        if (!i) return '';
+        let html = `<b>${new Date(+ts).toLocaleString()}</b>`;
+        const cv = cmpValueAt(cmpData, +ts);
+        const cur = i.hourly ? (i.q ? i.q[1] : undefined) : (i.n ? i.med : undefined);
+        let cmpLine = '';
+        if (cv !== undefined) {
+          cmpLine = `<br><span style="color:${cmpColor}">┄ ${CMP_NAMES[cmpData.mode]} <b>${cv.toFixed(1)} ms</b>`;
+          if (cur !== undefined && cv > 0) {
+            const dp = (cur - cv) / cv * 100;
+            cmpLine += ` · Δ <b style="color:${dp > 0 ? cssv('--alert') : cssv('--phos')}">${dp >= 0 ? '+' : ''}${dp.toFixed(1)}%</b>`;
+          }
+          cmpLine += '</span>';
+        }
+        if (i.hourly) {
+          const f = v => v.toFixed(1);
+          html += i.q ? `<br>hour min/p50/p90/p99/max = ${i.q.map(f).join('/')} ms` : '<br>no replies this hour';
+          html += `<br>${i.n} rounds`;
+          html += `<br><span style="color:${i.lp > 0 ? cssv('--alert') : cssv('--dim')}">loss <b>${i.lp.toFixed(2)}%</b></span>`;
+          if (i.bursts) html += ` <span style="color:${cssv('--alert')}">· ◆ ${i.bursts} burst${i.bursts > 1 ? 's' : ''}</span>`;
+          return html + cmpLine;
+        }
+        html += `<br>rtt min/avg/max/mdev = ${i.lo.toFixed(3)}/${i.avg.toFixed(3)}/${i.hi.toFixed(3)}/${i.mdev.toFixed(3)} ms`;
+        html += `<br>median <b>${i.med.toFixed(1)} ms</b> · ${i.n} samples`;
+        html += `<br><span style="color:${i.lp > 0 ? cssv('--alert') : cssv('--dim')}">loss <b>${i.lp.toFixed(0)}%</b> (${i.lost}/${i.s})</span>`;
+        if (i.b) html += ` <span style="color:${cssv('--alert')}">· ◆ burst z=${i.z ? i.z.toFixed(2) : '—'}</span>`;
+        return html + cmpLine;
+      } },
+    // 荧光束渐变:贴线的样本 = 炽亮核心,散开的样本渐冷渐暗
+    visualMap: { show: false, type: 'continuous', dimension: 2, min: 0, max: 0.5,
+      seriesIndex: 0,
+      inRange: { color: [cssv('--smoke-hot'), cssv('--smoke-mid'), cssv('--smoke-cool')],
+                 opacity: [0.5, 0.10] } },
+    series: [
+      { type: 'scatter', data: smoke, symbolSize: 2.2, silent: true, large: true },
+      { type: 'line', data: median, showSymbol: false, silent: true, z: 4,
+        lineStyle: { color: phos, width: 7, opacity: 0.10 } },
+      { id: 'median', type: 'line', data: median, showSymbol: false,
+        lineStyle: { color: phos, width: 1.6, shadowColor: phos, shadowBlur: +cssv('--glow') * 2 }, z: 5 },
+      { type: 'bar', yAxisIndex: 1, data: lossBars, barMaxWidth: 3,
+        itemStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1,
+          [{ offset: 0, color: cssv('--alert') }, { offset: 1, color: cssv('--lossbar') }]) } },
+      { type: 'scatter', yAxisIndex: 1, data: burstPts, symbol: 'diamond',
+        symbolSize: 9, itemStyle: { color: cssv('--alert') }, z: 6,
+        tooltip: { formatter: p => `◆ ${p.value[2]}` } },
+      // Compare dashed line: P50 only, no smoke. Data is merged in later by id.
+      { id: 'cmp', name: cmpName, type: 'line', data: [], showSymbol: false, z: 3,
+        lineStyle: { color: cmpColor, width: 1.3, type: 'dashed' },
+        itemStyle: { color: cmpColor } }
+    ]
+  }, true);
+  cmpData = null;
+
+  const cmp = await cmpP;
+  if (seq !== renderSeq || !cmp || cmp.mode !== cmpMode) return; // stale / superseded / switched: main chart stays
+  if (cmp.failed) { // failed or timed out: the legend must not keep promising "┄ = …"
+    $('legend').textContent = `${legendBase} · comparison data unavailable`;
+    return;
+  }
+  if (cmp.empty) {
+    $('legend').textContent += ' (no data in comparison period)';
+    return;
+  }
+  cmpData = cmp;
+  // A comparison period more than 3x higher than the main chart would flatten the
+  // main line on a shared axis. Size the axis to the main chart (top x 1.2, rounded),
+  // let the dashed line clip at the top edge, and print the compare peak.
+  const cmpTop = cmp.pts.reduce((m, p) => p[1] > m ? p[1] : m, 0);
+  const clip = mainTop > 0 && cmpTop > mainTop * 3;
+  // Main chart on raw rounds but the comparison only has hourly rows: draw steps
+  // (a bucket is stamped at its start and holds until the next one).
+  const opt = { series: [{ id: 'cmp', data: cmp.pts, step: (cmp.hourly && !hourly) ? 'end' : false }] };
+  if (clip) {
+    const peak = `↑ ${cmpTop.toFixed(1)} ms`;
+    opt.yAxis = [{ max: niceCeil(mainTop * 1.2) }];
+    opt.graphic = [{ type: 'text', id: 'cmpClip', right: 48, top: 2, silent: true,
+      style: { text: `┄ ${peak}`, fill: cmpColor, font: '10px monospace' } }];
+    $('legend').textContent += ` (${peak})`;
+  }
+  chart.setOption(opt);
+}
+
+
+document.querySelectorAll('.rng button[data-m]').forEach(b => b.onclick = () => {
+  sel = null; $('selReset').style.display = 'none';
+  $('customFrom').value = ''; $('customTo').value = '';
+  document.querySelectorAll('.rng button[data-m]').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  minutes = +b.dataset.m;
+  render();
+});
+$('selReset').onclick = () => { sel = null; $('selReset').style.display = 'none'; render(); };
+$('cmpMode').onchange = () => { cmpMode = $('cmpMode').value; render(); };
+$('customGo').onclick = () => {
+  const fv = $('customFrom').value, tv = $('customTo').value;
+  if (!fv || !tv) return;
+  const from = Math.floor(new Date(fv).getTime() / 1000);
+  const to = Math.floor(new Date(tv).getTime() / 1000);
+  if (to <= from) return;
+  document.querySelectorAll('.rng button[data-m]').forEach(x => x.classList.remove('on'));
+  minutes = 0;
+  sel = { from, to };
+  $('selReset').style.display = '';
+  render();
+};
+$('tfilter').onclick = e => {
+  const b = e.target.closest('button[data-t]');
+  if (!b) return;
+  document.querySelectorAll('#tfilter button').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  typeFilter = b.dataset.t;
+  render();
+};
+
+// 版本号显示在赞助栏标题;保留期决定哪些时间窗有意义
+fetch('/api/version').then(r => r.json()).then(d => {
+  if (d.editable) $('editBtn').style.display = '';
+  // Read-only instance: the list is readable, so it can be exported; import
+  // lives in the editor, which only --edit opens.
+  else $('exportPill').style.display = '';
+  const el = $('ver');
+  if (el && d.version) el.textContent = 'v' + String(d.version).replace(/^v/, '');
+  const keep = (d.retention_days || 0) * 1440;
+  retentionSec = keep * 60;
+  if (d.hot_days > 0) rawKeepSec = d.hot_days * 86400;
+  if (syncCmpOptions(curWindow())) render(); // current compare mode beyond retention -> fell back to Off, redraw
+  if (keep > 0) {
+    document.querySelectorAll('.rng button[data-m]').forEach(b => {
+      if (+b.dataset.m > keep) b.style.display = 'none';
+    });
+  }
+}).catch(() => {});
+
+render();
+setInterval(() => { if (!rendering) render(); }, 60000); // 慢查询进行中时跳过本次自动刷新
+// Beyond 24h the chart draws hourly buckets: the smoke is the five percentiles per
+// hour rather than every sample — raw samples are only kept for hot_days (2 by default).
+
+// ---- target editor (server started with --edit) ----
+let editingId = 0;
+function drawTargetTable() {
+  if ($('tgtPanel').style.display === 'none') return;
+  const body = $('tgtRows'); body.replaceChildren();
+  targets.forEach(t => {
+    const tr = document.createElement('tr');
+    const cell = (text, cls) => { const td = document.createElement('td'); td.textContent = text;
+                                  if (cls) td.className = cls; tr.append(td); };
+    cell(t.name); cell(typeInfo(t.type).label); cell(t.addr, 'mono');
+    cell(t.pace); cell(t.interval_sec + 's' + (t.interval_set ? '' : ' (pace)'), 'mono');
+    const act = document.createElement('td'); act.className = 'act';
+    const ed = document.createElement('button'); ed.className = 'lnk'; ed.textContent = 'edit';
+    ed.onclick = () => fillForm(t);
+    const del = document.createElement('button'); del.className = 'lnk del'; del.textContent = 'delete';
+    del.onclick = () => deleteTarget(t);
+    act.append(ed, del); tr.append(act); body.append(tr);
+  });
+}
+function fillForm(t) {
+  editingId = t ? t.id : 0;
+  $('fType').value = t ? t.type : (probeTypes[0] ? probeTypes[0].type : '');
+  $('fHost').value = t ? t.host : '';
+  $('fPort').value = t && t.port ? t.port : '';
+  $('fName').value = t ? t.name : '';
+  $('fPace').value = t ? t.pace : 'normal';
+  $('fIv').value = t && t.interval_set ? t.interval_set : '';
+  $('fSave').textContent = t ? 'save' : '+ add';
+  $('fCancel').style.display = t ? '' : 'none';
+  $('tgtErr').textContent = '';
+  optValues = (t && t.options) || {};
+  $('fType').onchange();
+  if (t) $('fHost').focus();
+}
+// The type's own options, drawn from the spec the server sent (options.go).
+// Values live in the inputs' data-key; nothing here knows any particular option.
+let optValues = {};
+function drawOptions() {
+  const box = $('fOpts'); box.innerHTML = '';
+  typeInfo($('fType').value).options?.forEach(s => {
+    const id = 'o_' + s.key;
+    const lab = document.createElement('label'); lab.className = 'sr-only'; lab.htmlFor = id; lab.textContent = s.label;
+    let el;
+    if (s.kind === 'choice') {
+      el = document.createElement('select');
+      s.choices.forEach(c => { const o = document.createElement('option'); o.value = o.textContent = c; el.append(o); });
+    } else if (s.kind === 'bool') {
+      el = document.createElement('input'); el.type = 'checkbox';
+      const w = document.createElement('label'); w.className = 'pill'; w.append(el, document.createTextNode(' ' + s.label));
+      el.id = id; el.dataset.key = s.key; el.dataset.kind = s.kind; if (s.help) w.title = s.help;
+      el.checked = (s.key in optValues) ? !!optValues[s.key] : !!s.default;
+      box.append(w); return;
+    } else {
+      el = document.createElement('input');
+      if (s.kind === 'int') { el.type = 'number'; el.style.width = '96px'; if (s.min != null) el.min = s.min; if (s.max) el.max = s.max; }
+      else { el.size = 16; if (s.max_len) el.maxLength = s.max_len; }
+      el.placeholder = s.label + (s.required ? '' : ' (optional)');
+    }
+    el.id = id; el.dataset.key = s.key; el.dataset.kind = s.kind; el.title = s.help || s.label;
+    if (s.required) el.required = true;
+    const v = (s.key in optValues) ? optValues[s.key] : s.default;
+    if (v !== undefined && v !== null) el.value = v;
+    box.append(lab, el);
+  });
+}
+function readOptions() {
+  const out = {};
+  $('fOpts').querySelectorAll('[data-key]').forEach(el => {
+    const k = el.dataset.key, kind = el.dataset.kind;
+    if (kind === 'bool') out[k] = el.checked;
+    else if (el.value === '') return;
+    else out[k] = kind === 'int' ? +el.value : el.value;
+  });
+  return out;
+}
+$('fType').onchange = () => { $('fPort').style.display = typeInfo($('fType').value).uses_port ? '' : 'none'; drawOptions(); };
+$('fCancel').onclick = () => fillForm(null);
+async function targetCall(method, url, body) {
+  const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' },
+                                 body: body ? JSON.stringify(body) : undefined });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+  return d;
+}
+$('tgtForm').onsubmit = async e => {
+  e.preventDefault();
+  const body = { type: $('fType').value, host: $('fHost').value, port: +$('fPort').value || 0,
+                 name: $('fName').value, pace: $('fPace').value, interval_sec: +$('fIv').value || 0,
+                 options: readOptions() };
+  try {
+    const t = editingId ? await targetCall('PUT', `/api/targets/${editingId}`, body)
+                        : await targetCall('POST', '/api/targets', body);
+    current = t.name; fillForm(null); render();
+  } catch (err) { $('tgtErr').textContent = err.message; }
+};
+async function deleteTarget(t) {
+  if (!confirm(`Stop probing "${t.name}"?\nIts history is kept, and comes back if you re-add the same name.`)) return;
+  try {
+    await targetCall('DELETE', `/api/targets/${t.id}`);
+    if (editingId === t.id) fillForm(null);
+    if (current === t.name) current = null;
+    render();
+  } catch (err) { $('tgtErr').textContent = err.message; }
+}
+$('editBtn').onclick = () => {
+  const p = $('tgtPanel'), open = p.style.display === 'none';
+  p.style.display = open ? '' : 'none';
+  $('editBtn').classList.toggle('on', open);
+  drawTargetTable();
+};
+
+// ---- export / import (netping-targets file, see docs/targets-format.md) ----
+// The server parses and validates; the page only shows its verdict. The preview
+// is a dry run of the same request, and the confirmation sends the same bytes
+// again, so what is applied is re-checked against the list as it is by then.
+(() => {
+  const tr = (k, en) => (window.T ? T(k, en) : en);
+  const n = (k, en, v) => tr(k, en).replace('%d', v);
+  let pending = null;
+  const msg = (text, bad) => { $('ieMsg').textContent = text; $('ieMsg').className = bad ? 'bad' : ''; };
+  const hide = () => { $('iePreview').style.display = 'none'; pending = null; };
+  const addr = r => typeInfo(r.type).uses_port ? (r.host.includes(':') ? `[${r.host}]:${r.port}` : `${r.host}:${r.port}`) : r.host;
+  async function post(body, dry) {
+    const res = await fetch('/api/targets/import' + (dry ? '?dry_run=1' : ''),
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+    return d;
+  }
+  function show(p, file) {
+    $('ieTitle').textContent = p.name ? `${p.name} (${file})` : file;
+    const sum = $('ieSum'); sum.replaceChildren();
+    [[n('console.ieAdd', '%d to add', p.add.length)], [n('console.ieSkip', '%d skipped', p.skip.length)],
+     [n('console.ieInvalid', '%d invalid', p.invalid.length)]].forEach(([t], i) => {
+      if (i) sum.append(' · ');
+      const b = document.createElement('b'); b.textContent = t; sum.append(b);
+    });
+    const rows = [
+      ...p.add.map(r => ({ row: r.row, cls: 'add', st: tr('console.ieStAdd', '+ add'), name: r.name,
+        what: `${typeInfo(r.type).label} ${addr(r)} · ${r.pace || 'normal'}${r.interval ? ' · ' + r.interval + 's' : ''}`,
+        why: r.restores_history ? tr('console.ieRestore', 'restores the history of a deleted target with this name') : '' })),
+      ...p.skip.map(r => ({ row: r.row, cls: 'skip', st: tr('console.ieStSkip', 'skip'), name: r.name, what: '',
+        why: r.code === 'exists' ? tr('console.ieExists', 'a target with this name already exists')
+           : r.code === 'duplicate' ? tr('console.ieDupe', 'same name earlier in this file') : r.reason })),
+      ...p.invalid.map(r => ({ row: r.row, cls: 'invalid', st: tr('console.ieStInvalid', '✕ invalid'),
+        name: r.name || '', what: '', why: r.error })),
+    ].sort((x, y) => x.row - y.row);
+    const body = $('ieRows'); body.replaceChildren();
+    rows.forEach(r => {
+      const tr_ = document.createElement('tr'); tr_.className = r.cls;
+      [['#' + r.row, 'mono'], [r.st, 'st'], [r.name, ''], [r.what, 'mono'], [r.why, 'why']].forEach(([t, c]) => {
+        const td = document.createElement('td'); td.textContent = t; if (c) td.className = c; tr_.append(td);
+      });
+      body.append(tr_);
+    });
+    $('ieGo').textContent = p.add.length ? n('console.ieConfirm', 'Import %d targets', p.add.length)
+                                         : tr('console.ieNothing', 'Nothing to import');
+    $('ieGo').disabled = !p.add.length;
+    $('iePreview').style.display = '';
+  }
+  async function load(file) {
+    hide(); msg('');
+    if (!file) return;
+    if (file.size > 1048576) { msg(tr('console.ieTooBig', 'The file is larger than 1 MB.'), true); return; }
+    try {
+      const body = await file.text();
+      const p = await post(body, true);
+      pending = body;
+      show(p, file.name);
+    } catch (err) { msg(tr('console.ieFailed', 'Import failed:') + ' ' + err.message, true); }
+  }
+  $('ieImport').onclick = () => { $('ieFile').value = ''; $('ieFile').click(); };
+  $('ieFile').onchange = () => load($('ieFile').files[0]);
+  $('ieCancel').onclick = () => { hide(); msg(''); };
+  $('ieGo').onclick = async () => {
+    if (!pending) return;
+    $('ieGo').disabled = true;
+    try {
+      const p = await post(pending, false);
+      hide();
+      msg(n('console.ieDone', 'Imported %d targets.', p.imported));
+      render();
+    } catch (err) {
+      $('ieGo').disabled = false;
+      msg(tr('console.ieFailed', 'Import failed:') + ' ' + err.message, true);
+    }
+  };
+  const panel = $('tgtPanel');
+  const files = e => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+  panel.addEventListener('dragover', e => { if (files(e)) { e.preventDefault(); panel.classList.add('drop'); } });
+  panel.addEventListener('dragleave', () => panel.classList.remove('drop'));
+  panel.addEventListener('drop', e => {
+    if (!files(e)) return;
+    e.preventDefault(); panel.classList.remove('drop');
+    load(e.dataTransfer.files[0]);
+  });
+})();
+
+$('themeBtn').onclick = () => {
+  theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+  localStorage.setItem('pp_theme', theme);
+  applyTheme();
+  render();
+};
+window.addEventListener('resize', () => chart && chart.resize());
+</script>
+</body>
+</html>

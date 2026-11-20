@@ -1,0 +1,19 @@
+[package]
+name = "fogping-probe-traceroute"
+version = "1.0.0"
+edition = "2021"
+description = "A fogping prober: UDP traceroute to one hop, no root needed"
+
+# fogping runs an executable called `probe`.
+[[bin]]
+name = "probe"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2"        # the few system calls std does not wrap (see udp_trace.rs)
+serde_json = "1"    # the request and the answer are JSON
+
+[profile.release]
+opt-level = 2
+lto = true
+strip = true

@@ -1,0 +1,12 @@
+{
+  "protocol": "fogping-probe/1",
+  "type": "traceroute",
+  "label": "TRACE",
+  "uses_port": false,
+  "options": [
+    {"key": "hop", "label": "Hop", "kind": "int", "min": 0, "max": 64, "default": 0,
+     "help": "0 measures the destination itself. N measures the Nth router on the way there, like one line of mtr. IPv4 only, Linux only."},
+    {"key": "udp_port", "label": "UDP port", "kind": "int", "min": 1, "max": 65535, "default": 33434,
+     "help": "The destination port of the probe packets. Traceroute's classic 33434 is almost always closed, which is what makes the destination answer."}
+  ]
+}

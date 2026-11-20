@@ -1,0 +1,24 @@
+name: staticcheck
+
+# Static analysis beyond go vet: dead code, misused APIs, style rules that catch
+# real mistakes. The version is pinned so a new release of the tool cannot turn
+# this red with no commit behind it. Each platform the program ships for is
+# checked, because some code only exists on one of them.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  staticcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with: { go-version-file: go.mod }
+      - run: go install honnef.co/go/tools/cmd/staticcheck@v0.8.2
+      - run: GOOS=linux GOARCH=amd64 staticcheck ./...

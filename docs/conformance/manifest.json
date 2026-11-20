@@ -1,0 +1,508 @@
+{
+ "description": "Manifest vectors. Each entry is a manifest and either no 'error' (it must be accepted) or the error code every implementation must report.",
+ "vectors": [
+  {
+   "name": "minimal",
+   "manifest": {
+    "protocol": "fogping-probe/1",
+    "type": "dns",
+    "label": "DNS",
+    "uses_port": false,
+    "options": []
+   }
+  },
+  {
+   "name": "all kinds",
+   "manifest": {
+    "protocol": "fogping-probe/1",
+    "type": "dns",
+    "label": "DNS",
+    "uses_port": false,
+    "options": [
+     {
+      "key": "record",
+      "label": "Record",
+      "kind": "choice",
+      "choices": [
+       "A",
+       "MX"
+      ],
+      "default": "A"
+     },
+     {
+      "key": "retries",
+      "label": "Retries",
+      "kind": "int",
+      "min": 0,
+      "max": 5,
+      "default": 1
+     },
+     {
+      "key": "query",
+      "label": "Query",
+      "kind": "string",
+      "required": true,
+      "max_len": 64
+     },
+     {
+      "key": "use_tcp",
+      "label": "Use_Tcp",
+      "kind": "bool"
+     }
+    ]
+   }
+  },
+  {
+   "name": "uses_port",
+   "manifest": {
+    "protocol": "fogping-probe/1",
+    "type": "smtp",
+    "label": "SMTP",
+    "uses_port": true,
+    "options": []
+   }
+  },
+  {
+   "name": "wrong protocol",
+   "manifest": {
+    "protocol": "fogping-probe/2",
+    "type": "dns",
+    "label": "DNS",
+    "uses_port": false,
+    "options": []
+   },
+   "error": "bad_protocol"
+  },
+  {
+   "name": "missing protocol",
+   "manifest": {
+    "type": "dns",
+    "label": "DNS"
+   },
+   "error": "bad_protocol"
+  },
+  {
+   "name": "type uppercase",
+   "manifest": {
+    "protocol": "fogping-probe/1",
+    "type": "DNS",
+    "label": "DNS",
+    "uses_port": false,
+    "options": []
+   },
+   "error": "bad_type"
+  },
+  {
+   "name": "type starts with digit",
+   "manifest": {
+    "protocol": "fogping-probe/1",
+    "type": "1dns",
+    "label": "DNS",
+    "uses_port": false,
+    "options": []
+   },
+   "error": "bad_type"
+  },
+  {
+   "name": "type too long",
+   "manifest": {
+    "protocol": "fogping-probe/1",
+    "type": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "label": "DNS",
+    "uses_port": false,
+    "options": []
+   },
+   "error": "bad_type"
+  },
+  {
+   "name": "empty label",
+   "manifest": {
+    "protocol": "fogping-probe/1",
+    "type": "dns",
+    "label": " ",
+    "uses_port": false,
+    "options": []
+   },
+   "error": "bad_label"
+  },
+  {
+   "name": "label too long",
+   "manifest": {
+    "protocol": "fogping-probe/1",
+    "type": "dns",
+    "label": "xxxxxxxxxxxxxxxxx",
+    "uses_port": false,
+    "options": []
+   },
+   "error": "bad_label"
+  },
+  {
+   "name": "bad option key",
+   "manifest": {
+    "protocol": "fogping-probe/1",
+    "type": "dns",
+    "label": "DNS",
+    "uses_port": false,
+    "options": [
+     {
+      "key": "Bad-Key",
+      "label": "Bad-Key",
+      "kind": "string"
+     }
+    ]
+   },
+   "error": "bad_key"
+  },
+  {
+   "name": "duplicate option key",
+   "manifest": {
+    "protocol": "fogping-probe/1",
+    "type": "dns",
+    "label": "DNS",
+    "uses_port": false,
+    "options": [
+     {
+      "key": "a",
+      "label": "A",
+      "kind": "string"
+     },
+     {
+      "key": "a",
+      "label": "A",
+      "kind": "string"
+     }
+    ]
+   },
+   "error": "duplicate_key"
+  },
+  {
+   "name": "option without label",
+   "manifest": {
+    "protocol": "fogping-probe/1",
+    "type": "dns",
+    "label": "DNS",
+    "uses_port": false,
+    "options": [
+     {
+      "key": "a",
+      "kind": "string"
+     }
+    ]
+   },
+   "error": "bad_label"
+  },
+  {
+   "name": "unknown kind",
+   "manifest": {
+    "protocol": "fogping-probe/1",
+    "type": "dns",
+    "label": "DNS",
+    "uses_port": false,
+    "options": [
+     {
+      "key": "a",
+      "label": "A",
+      "kind": "float"
+     }
+    ]
+   },
+   "error": "bad_kind"
+  },
+  {
+   "name": "choice without choices",
+   "manifest": {
+    "protocol": "fogping-probe/1",
+    "type": "dns",
+    "label": "DNS",
+    "uses_port": false,
+    "options": [
+     {
+      "key": "a",
+      "label": "A",
+      "kind": "choice"
+     }
+    ]
+   },
+   "error": "missing_choices"
+  },
+  {
+   "name": "default out of range",
+   "manifest": {
+    "protocol": "fogping-probe/1",
+    "type": "dns",
+    "label": "DNS",
+    "uses_port": false,
+    "options": [
+     {
+      "key": "a",
+      "label": "A",
+      "kind": "int",
+      "min": 1,
+      "default": 0
+     }
+    ]
+   },
+   "error": "bad_default"
+  },
+  {
+   "name": "default not a choice",
+   "manifest": {
+    "protocol": "fogping-probe/1",
+    "type": "dns",
+    "label": "DNS",
+    "uses_port": false,
+    "options": [
+     {
+      "key": "a",
+      "label": "A",
+      "kind": "choice",
+      "choices": [
+       "x"
+      ],
+      "default": "y"
+     }
+    ]
+   },
+   "error": "bad_default"
+  },
+  {
+   "name": "21 options",
+   "manifest": {
+    "protocol": "fogping-probe/1",
+    "type": "dns",
+    "label": "DNS",
+    "uses_port": false,
+    "options": [
+     {
+      "key": "k0",
+      "label": "K0",
+      "kind": "string"
+     },
+     {
+      "key": "k1",
+      "label": "K1",
+      "kind": "string"
+     },
+     {
+      "key": "k2",
+      "label": "K2",
+      "kind": "string"
+     },
+     {
+      "key": "k3",
+      "label": "K3",
+      "kind": "string"
+     },
+     {
+      "key": "k4",
+      "label": "K4",
+      "kind": "string"
+     },
+     {
+      "key": "k5",
+      "label": "K5",
+      "kind": "string"
+     },
+     {
+      "key": "k6",
+      "label": "K6",
+      "kind": "string"
+     },
+     {
+      "key": "k7",
+      "label": "K7",
+      "kind": "string"
+     },
+     {
+      "key": "k8",
+      "label": "K8",
+      "kind": "string"
+     },
+     {
+      "key": "k9",
+      "label": "K9",
+      "kind": "string"
+     },
+     {
+      "key": "k10",
+      "label": "K10",
+      "kind": "string"
+     },
+     {
+      "key": "k11",
+      "label": "K11",
+      "kind": "string"
+     },
+     {
+      "key": "k12",
+      "label": "K12",
+      "kind": "string"
+     },
+     {
+      "key": "k13",
+      "label": "K13",
+      "kind": "string"
+     },
+     {
+      "key": "k14",
+      "label": "K14",
+      "kind": "string"
+     },
+     {
+      "key": "k15",
+      "label": "K15",
+      "kind": "string"
+     },
+     {
+      "key": "k16",
+      "label": "K16",
+      "kind": "string"
+     },
+     {
+      "key": "k17",
+      "label": "K17",
+      "kind": "string"
+     },
+     {
+      "key": "k18",
+      "label": "K18",
+      "kind": "string"
+     },
+     {
+      "key": "k19",
+      "label": "K19",
+      "kind": "string"
+     },
+     {
+      "key": "k20",
+      "label": "K20",
+      "kind": "string"
+     }
+    ]
+   },
+   "error": "too_many_options"
+  },
+  {
+   "name": "20 options",
+   "manifest": {
+    "protocol": "fogping-probe/1",
+    "type": "dns",
+    "label": "DNS",
+    "uses_port": false,
+    "options": [
+     {
+      "key": "k0",
+      "label": "K0",
+      "kind": "string"
+     },
+     {
+      "key": "k1",
+      "label": "K1",
+      "kind": "string"
+     },
+     {
+      "key": "k2",
+      "label": "K2",
+      "kind": "string"
+     },
+     {
+      "key": "k3",
+      "label": "K3",
+      "kind": "string"
+     },
+     {
+      "key": "k4",
+      "label": "K4",
+      "kind": "string"
+     },
+     {
+      "key": "k5",
+      "label": "K5",
+      "kind": "string"
+     },
+     {
+      "key": "k6",
+      "label": "K6",
+      "kind": "string"
+     },
+     {
+      "key": "k7",
+      "label": "K7",
+      "kind": "string"
+     },
+     {
+      "key": "k8",
+      "label": "K8",
+      "kind": "string"
+     },
+     {
+      "key": "k9",
+      "label": "K9",
+      "kind": "string"
+     },
+     {
+      "key": "k10",
+      "label": "K10",
+      "kind": "string"
+     },
+     {
+      "key": "k11",
+      "label": "K11",
+      "kind": "string"
+     },
+     {
+      "key": "k12",
+      "label": "K12",
+      "kind": "string"
+     },
+     {
+      "key": "k13",
+      "label": "K13",
+      "kind": "string"
+     },
+     {
+      "key": "k14",
+      "label": "K14",
+      "kind": "string"
+     },
+     {
+      "key": "k15",
+      "label": "K15",
+      "kind": "string"
+     },
+     {
+      "key": "k16",
+      "label": "K16",
+      "kind": "string"
+     },
+     {
+      "key": "k17",
+      "label": "K17",
+      "kind": "string"
+     },
+     {
+      "key": "k18",
+      "label": "K18",
+      "kind": "string"
+     },
+     {
+      "key": "k19",
+      "label": "K19",
+      "kind": "string"
+     }
+    ]
+   }
+  },
+  {
+   "name": "unknown manifest field is ignored",
+   "manifest": {
+    "protocol": "fogping-probe/1",
+    "type": "dns",
+    "label": "DNS",
+    "uses_port": false,
+    "options": [],
+    "future_field": true
+   }
+  }
+ ]
+}

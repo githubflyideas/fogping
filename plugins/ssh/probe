@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+#
+# A fogping prober that times an SSH server's greeting. Written in Bash.
+#
+# An SSH server speaks first: as soon as you connect it sends one line such as
+# "SSH-2.0-OpenSSH_9.6". This prober connects, waits for that line, and measures
+# how long that took (DNS lookup + TCP connect + the server's reply). It never
+# logs in and never sends anything, so it needs no keys or passwords. (sshd will
+# log "Connection closed ... [preauth]" for each probe; that is normal.)
+#
+# Shell is a fine language for a prober as long as you respect one rule, and this
+# file is written to show it:
+#
+#     NEVER let text from the request become part of a command.
+#
+# The host and options come from a user. Passed through `eval`, unquoted, or
+# spliced into a string that is later run as code, they could run commands as the
+# user fogping runs as. So here: values are checked against a strict whitelist
+# first, and are only ever passed as quoted arguments ("$host"), never as code.
+#
+# HOW A PROBER TALKS TO FOGPING (the same in every language)
+#   1. read ONE JSON object from standard input      (the request)
+#   2. measure
+#   3. write ONE JSON object to standard output       (the answer)
+# Nothing arrives on the command line and the environment is nearly empty. The
+# complete contract is docs/PROBE-PROTOCOL.md.
+#
+# Try it by hand:
+#   echo '{"protocol":"fogping-probe/1","type":"ssh","host":"127.0.0.1","port":22,
+#          "packets":3,"gap_ms":200,"timeout_ms":3000,"options":{}}' | ./probe
+
+# Not `set -e`: in a prober, "this probe failed" is a normal result, not a reason
+# to stop. `-u` (error on unset variables) and `pipefail` catch real mistakes.
+set -u -o pipefail
+
+readonly PROTOCOL='fogping-probe/1'
+
+# --------------------------------------------------------------------------
+# Answers. These two functions are the ONLY places that print to stdout.
+# --------------------------------------------------------------------------
+
+# We could not measure at all. fogping records this as a failed round, which is
+# NOT packet loss.
+#
+# $1 is always a constant written in this file, never text from the request. That
+# matters: printing user text into JSON with printf would need escaping (a quote
+# or backslash would break the JSON, or worse).
+failure() {
+  printf '{"protocol":"%s","error":"%s"}\n' "$PROTOCOL" "$1"
+  exit 0 # exit status is not what fogping judges: the answer is
+}
+
+# $1 sent, $2 received, $3 the ms list, comma-separated ("1.2,3.4", or empty).
+# Every caller passes only numbers it computed itself.
+measurement() {
+  printf '{"protocol":"%s","sent":%d,"received":%d,"ms":[%s]}\n' "$PROTOCOL" "$1" "$2" "$3"
+  exit 0
+}
+
+# --------------------------------------------------------------------------
+# Reading the request
+#
+# There is no JSON parser in plain Bash, and we do not want a dependency like jq.
+# That is fine here because fogping's request has a fixed, simple shape. We pull
+# out each field with sed, and then VALIDATE it: whatever sed returned, only a
+# value that passes the whitelist is ever used.
+# --------------------------------------------------------------------------
+
+# Read at most 64 KB. `|| true`: a missing final newline makes `read` return
+# non-zero even though it filled the variable.
+IFS= read -r -N 65536 request || true
+
+# field NAME PATTERN  ->  the value of "NAME":"..." (string) or "NAME":123 (number)
+# `-n ...p` prints only when the pattern matched, so a missing field gives "".
+str_field() { printf '%s' "$request" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p" | head -n 1; }
+num_field() { printf '%s' "$request" | sed -n "s/.*\"$1\":\([0-9][0-9]*\).*/\1/p" | head -n 1; }
+
+protocol=$(str_field protocol)
+host=$(str_field host)
+port=$(num_field port)
+packets=$(num_field packets)
+gap_ms=$(num_field gap_ms)
+timeout_ms=$(num_field timeout_ms)
+expect=$(str_field expect_banner)
+: "${expect:=SSH-2.0-}" # the manifest default, in case the option is absent
+
+# --------------------------------------------------------------------------
+# Validation: a whitelist for every value
+#
+# `[[ $x =~ ^...$ ]]` with a regex of ALLOWED characters. Listing what is allowed
+# is far safer than trying to list what is dangerous.
+# --------------------------------------------------------------------------
+
+[[ $protocol == "$PROTOCOL" ]]                          || failure 'unsupported protocol'
+[[ $host =~ ^[A-Za-z0-9._:-]{1,253}$ ]]                 || failure 'host must be a hostname or an IP address'
+[[ $port =~ ^[0-9]{1,5}$ ]] && ((port >= 1 && port <= 65535)) || failure 'port must be 1-65535'
+[[ $packets =~ ^[0-9]{1,4}$ ]] && ((packets >= 1 && packets <= 1000)) || failure 'packets out of range'
+[[ $gap_ms =~ ^[0-9]{1,6}$ ]]                           || failure 'gap_ms out of range'
+[[ $timeout_ms =~ ^[0-9]{1,6}$ ]] && ((timeout_ms >= 1)) || failure 'timeout_ms out of range'
+[[ $expect =~ ^[A-Za-z0-9._-]{1,32}$ ]]                 || failure 'expect_banner has characters that are not allowed'
+
+# --------------------------------------------------------------------------
+# One probe
+#
+# The work runs in a child `bash -c` so that `timeout` can kill it if the server
+# never answers (connecting has no time limit of its own).
+#
+# The script is a SINGLE-QUOTED, constant string: the shell does not touch what is
+# inside, so no request text can alter it. The values arrive as arguments $1..$4
+# and are used only as quoted words. After the script comes `_`, which becomes $0.
+#
+# Timing happens INSIDE the child. EPOCHREALTIME (Bash 5) is the time in seconds
+# with microseconds; removing the dot gives integer microseconds. Timing outside
+# would include the cost of starting bash.
+# --------------------------------------------------------------------------
+
+readonly PROBE_SCRIPT='
+  start=${EPOCHREALTIME/./}
+  # /dev/tcp/HOST/PORT is Bash opening a TCP connection (and resolving HOST).
+  exec 3<>"/dev/tcp/$1/$2" || exit 1
+  # Read the greeting: one line, at most 255 characters, within $3 seconds.
+  IFS= read -r -t "$3" -n 255 line <&3 || exit 1
+  end=${EPOCHREALTIME/./}
+  exec 3>&-
+  # Quoted $4 on the right of == makes it a LITERAL prefix, not a glob pattern.
+  [[ $line == "$4"* ]] || exit 1
+  echo $((end - start))
+'
+
+# probe_once prints the elapsed microseconds, or nothing if the probe was lost.
+probe_once() {
+  local read_timeout
+  # Whole seconds with milliseconds, for `timeout` and `read -t`.
+  read_timeout=$(printf '%d.%03d' $((timeout_ms / 1000)) $((timeout_ms % 1000)))
+  # --kill-after: if bash ignores the polite TERM, KILL it a second later.
+  timeout --kill-after=1 "$read_timeout" \
+    bash -c "$PROBE_SCRIPT" _ "$host" "$port" "$read_timeout" "$expect" 2>/dev/null
+}
+
+# --------------------------------------------------------------------------
+# The round
+# --------------------------------------------------------------------------
+
+gap=$(printf '%d.%03d' $((gap_ms / 1000)) $((gap_ms % 1000)))
+received=0
+ms_list=''
+
+for ((i = 0; i < packets; i++)); do
+  ((i > 0)) && sleep "$gap"
+  us=$(probe_once)
+  # Only a plain integer counts. If the child printed anything else, treat the
+  # probe as lost instead of putting unknown text into our JSON.
+  if [[ $us =~ ^[0-9]{1,12}$ ]]; then
+    ((received++))
+    # microseconds -> "milliseconds.micro" with three decimals, by integer maths
+    ms=$(printf '%d.%03d' $((us / 1000)) $((us % 1000)))
+    ms_list+="${ms_list:+,}$ms"
+  fi
+done
+
+# Always sent, received and ms together. Lost probes are not in the list.
+measurement "$packets" "$received" "$ms_list"

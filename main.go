@@ -1,0 +1,301 @@
+package main
+
+import (
+	"flag"
+	"fmt"
+	"io"
+	"log"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+)
+
+var version = "dev"
+
+// demoTarget is seeded into a brand-new database so the very first launch shows smoke.
+var demoTarget = TargetCfg{Name: "Demo", Type: typeICMP, Host: "www.google.com", Pace: "fast"}
+
+func main() {
+	// Before anything else: fogping started as the launcher for one prober run
+	// (external.go). Nothing of the normal start-up may run in that process.
+	if len(os.Args) > 1 && os.Args[1] == probeExecArg {
+		probeExec(os.Args[2:])
+		return
+	}
+	localOnly := flag.Bool("localhost", false, "bind 127.0.0.1 only; put Caddy/Nginx in front for auth/TLS")
+	days := flag.Int("days", defaultDays, fmt.Sprintf("days of history to keep (max %d); UI hides windows beyond this", maxDays))
+	edit := flag.Bool("edit", false, "allow adding/editing/deleting targets from the web UI (default: read-only)")
+	showVer := flag.Bool("version", false, "print version")
+	zabbix := flag.Bool("zabbix", false, "serve a read-only GET /api/stats for the Zabbix template (needs FOGPING_ZABBIX_TOKEN)")
+	probes := flag.Bool("probes", false, "load external probers from ./probes (see docs/PROBE-PROTOCOL.md)")
+	check := flag.Bool("check", false, "check the configuration and this machine, report, and exit without starting")
+	genTokenPath := flag.String("gen-token", "", "write a new random Zabbix token to this file (owner-only) and exit")
+	args := os.Args[1:]
+	for _, a := range args {
+		if a == "help" { // `fogping help` would otherwise be rejected as a bad auth arg
+			printHelp(os.Stdout)
+			return
+		}
+	}
+	// Our own help (stdout, examples first) instead of the flag package's dump on
+	// stderr; on a bad flag, one line and a pointer — not the whole help.
+	flag.CommandLine.Init("fogping", flag.ContinueOnError)
+	flag.CommandLine.SetOutput(io.Discard)
+	flagArgs, authArgs := splitArgs(args)
+	if err := flag.CommandLine.Parse(flagArgs); err != nil {
+		if err == flag.ErrHelp {
+			printHelp(os.Stdout)
+			return
+		}
+		fmt.Fprintf(os.Stderr, "fogping: %v\nRun './fogping --help' for examples.\n", err)
+		os.Exit(2)
+	}
+	var err error
+	if *showVer {
+		fmt.Println("fogping", version)
+		return
+	}
+
+	if *genTokenPath != "" {
+		if err := genToken(os.Stdout, *genTokenPath); err != nil {
+			fmt.Fprintf(os.Stderr, "fogping: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	st, problems := prepare(startFlags{days: *days, localOnly: *localOnly, edit: *edit, zabbix: *zabbix, probe: *probes},
+		append(authArgs, flag.Args()...), os.Getenv)
+	if *check {
+		os.Exit(runCheck(os.Stdout, st, problems))
+	}
+	if len(problems) > 0 {
+		// Every refusal stands. They are only listed together, so one restart fixes all.
+		for _, p := range problems {
+			log.Printf("ERROR: %v", p)
+		}
+		log.Fatalf("fogping did not start: %d problem(s) above. './fogping --check' reports on the whole setup without starting.", len(problems))
+	}
+	cfg, users := st.cfg, st.users
+	// The variables have done their job; do not hand them to anything this
+	// process might start.
+	os.Unsetenv("FOGPING_PASSWD")
+	os.Unsetenv("FOGPING_ZABBIX_TOKEN")
+	if st.tokenIgnored {
+		log.Printf("note: a Zabbix token is set but --zabbix was not given; the Zabbix stats API stays off")
+	}
+	if st.cliPasswd {
+		log.Printf("WARNING: passwd= on the command line is visible to every account on this machine (ps, /proc) " +
+			"and lands in shell history. Prefer FOGPING_PASSWD=... in the environment or passwd-file=PATH.")
+	}
+
+	var probesLoaded []string
+	if *probes {
+		probesLoaded = loadProbes(probesDir)
+	}
+	store, err := NewStore(cfg.DataDir, nil)
+	if err != nil {
+		log.Fatalf("store init failed: %v", err)
+	}
+	if n, err := store.TargetRows(); err == nil && n == 0 {
+		if _, err := store.CreateTarget(demoTarget); err != nil {
+			// Not fatal (the user can add targets themselves) but never silent: an
+			// empty first screen with no explanation looks like a broken install.
+			log.Printf("WARNING: could not seed the demo target: %v", err)
+		} else {
+			log.Printf("new database — seeded a demo target (www.google.com)")
+		}
+	}
+
+	detector := NewDetector(store)
+	run := NewRunner(cfg.Probe, store, detector)
+	if err := run.Reload(); err != nil {
+		log.Fatalf("load targets: %v", err)
+	}
+	stop := make(chan struct{})
+	go store.flushLoop(stop)
+	go housekeeping(cfg, store, stop)
+
+	mode := "read-only targets (restart with --edit to change them in the web UI)"
+	if cfg.Editable {
+		mode = "targets editable in the web UI"
+	}
+	log.Printf("fogping %s up · %d targets · %s · listening on %s · data in %s · %d-day retention",
+		version, len(run.Targets()), mode, cfg.Listen, cfg.DataDir, cfg.RetentionDays)
+	if len(run.Targets()) == 0 {
+		log.Printf("no active targets — restart with --edit and add them in the web UI")
+	}
+	log.Printf("security summary (lines marked ! deserve a look):")
+	for _, l := range securitySummary(st, probesLoaded) {
+		log.Printf("  %s", l)
+	}
+	if len(users) == 0 && !st.localOnly {
+		log.Printf("tip: protect the web UI with  ./fogping user=u1,u2 passwd=p1,p2  or --localhost + reverse proxy")
+	}
+	log.Printf("➜  open http://localhost%s for the smoke graph", portOf(cfg.Listen))
+
+	go func() {
+		if err := serveWeb(cfg, store, run, users); err != nil {
+			log.Fatalf("web server: %v", err)
+		}
+	}()
+
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+	<-sig
+	close(stop)
+	cleanupProbes()
+	if err := store.Close(); err != nil { // final flush; waits for in-flight queries
+		log.Printf("close: %v", err)
+	}
+	log.Printf("fogping shut down")
+}
+
+// splitArgs lets user=/passwd= and --flags come in any order. Go's flag package
+// stops at the first non-flag argument, so `fogping user=a passwd=b --edit` would
+// otherwise treat --edit as a stray positional. key=value words go to auth; flags
+// and bare values (`--days 300`) stay with the flags.
+func splitArgs(args []string) (flags, auth []string) {
+	for _, a := range args {
+		if !strings.HasPrefix(a, "-") && strings.Contains(a, "=") {
+			auth = append(auth, a)
+		} else {
+			flags = append(flags, a)
+		}
+	}
+	return flags, auth
+}
+
+// resolveAuth finds the login from, in order: user=/passwd=/passwd-file= on the
+// command line, then FOGPING_USER with FOGPING_PASSWD or FOGPING_PASSWD_FILE in
+// the environment. cliPasswd reports a password given as passwd= on the command
+// line — which works, but every local account can read a process's arguments,
+// while its environment (/proc/<pid>/environ) and a 0600 file are private to
+// its owner.
+func resolveAuth(args []string, getenv func(string) string) (users map[string]string, cliPasswd bool, err error) {
+	hasUser, hasPw := false, false
+	for _, a := range args {
+		switch k, _, _ := strings.Cut(a, "="); k {
+		case "user", "users":
+			hasUser = true
+		case "passwd", "password", "passwords":
+			cliPasswd, hasPw = true, true
+		case "passwd-file":
+			hasPw = true
+		}
+	}
+	all := append([]string(nil), args...)
+	if u := getenv("FOGPING_USER"); u != "" && !hasUser {
+		all = append(all, "user="+u)
+	}
+	pw, pwFile := getenv("FOGPING_PASSWD"), getenv("FOGPING_PASSWD_FILE")
+	if !hasPw {
+		switch {
+		case pw != "" && pwFile != "":
+			return nil, false, fmt.Errorf("set FOGPING_PASSWD or FOGPING_PASSWD_FILE, not both")
+		case pwFile != "":
+			all = append(all, "passwd-file="+pwFile)
+		case pw != "":
+			all = append(all, "passwd="+pw)
+		}
+	}
+	users, err = parseAuthArgs(all)
+	return users, cliPasswd, err
+}
+
+// parseAuthArgs parses trailing "user=a,b passwd=x,y" arguments into a cred map.
+// passwd-file=PATH reads the passwords from a file instead, one per line, in the
+// order of user=.
+func parseAuthArgs(args []string) (map[string]string, error) {
+	var users, pws []string
+	fromFile := false
+	for _, a := range args {
+		k, v, ok := strings.Cut(a, "=")
+		if !ok {
+			return nil, fmt.Errorf("unrecognized argument %q (expected user=... passwd=...)", a)
+		}
+		switch k {
+		case "user", "users":
+			users = strings.Split(v, ",")
+		case "passwd", "password", "passwords":
+			if fromFile {
+				return nil, fmt.Errorf("give passwd= or passwd-file=, not both")
+			}
+			pws = strings.Split(v, ",")
+		case "passwd-file":
+			if pws != nil {
+				return nil, fmt.Errorf("give passwd= or passwd-file=, not both")
+			}
+			b, err := os.ReadFile(v)
+			if err != nil {
+				return nil, fmt.Errorf("passwd-file: %v", err)
+			}
+			fromFile = true
+			pws = []string{}
+			for _, line := range strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n") {
+				if line != "" {
+					pws = append(pws, line)
+				}
+			}
+		default:
+			return nil, fmt.Errorf("unknown key %q (expected user=, passwd=, passwd-file=)", k)
+		}
+	}
+	if len(users) == 0 && len(pws) == 0 {
+		return nil, nil
+	}
+	if len(users) != len(pws) {
+		return nil, fmt.Errorf("user count (%d) != passwd count (%d)", len(users), len(pws))
+	}
+	m := map[string]string{}
+	for i := range users {
+		if users[i] == "" || pws[i] == "" {
+			return nil, fmt.Errorf("empty user or passwd at position %d", i+1)
+		}
+		m[users[i]] = pws[i]
+	}
+	return m, nil
+}
+
+// housekeeping: rollup on start and every 5 minutes; retention nightly at 00:05.
+func housekeeping(cfg *Config, store *Store, stop chan struct{}) {
+	sched := &rollupSched{hot: time.Duration(cfg.HotDays) * 24 * time.Hour}
+	sched.tick(store, time.Now())
+	tick := time.NewTicker(30 * time.Second)
+	defer tick.Stop()
+	last := ""
+	for {
+		select {
+		case <-stop:
+			return
+		case <-tick.C:
+		}
+		now := time.Now()
+		sched.tick(store, now)
+		if day := now.Format("2006-01-02"); now.Hour() == 0 && now.Minute() == 5 && last != day {
+			last = day
+			store.Retention(now, cfg.HotDays, cfg.RetentionDays)
+		}
+	}
+}
+
+func portOf(listen string) string {
+	for i := len(listen) - 1; i >= 0; i-- {
+		if listen[i] == ':' {
+			return listen[i:]
+		}
+	}
+	return ":8518"
+}
+
+// checkEditAllowed is the rule that --edit needs a login or --localhost. It is its own
+// function so a test can hold it: this refusal is deliberate, and a convenience that
+// starts the program anyway would leave an editable console open to anyone.
+func checkEditAllowed(edit, hasLogin, localOnly bool) error {
+	if edit && !hasLogin && !localOnly {
+		return fmt.Errorf("--edit needs a login or --localhost, e.g.:  ./fogping --edit user=admin passwd=change-me")
+	}
+	return nil
+}

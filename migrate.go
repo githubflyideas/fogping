@@ -1,0 +1,182 @@
+package main
+
+import (
+	"database/sql"
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+)
+
+// Schema versions. The database records the last migration applied in
+// PRAGMA user_version; NewStore applies the ones after it, in order, each in
+// its own transaction together with the version bump, so a crash leaves the
+// database at one version or the next, never between.
+//
+// Migrations are only ever appended. Editing one that has shipped would leave
+// databases that ran the old text different from new ones.
+//
+// A database newer than this build knows is refused rather than guessed at:
+// running an old fogping on it could quietly drop what the newer one stores.
+var migrations = []func(tx *sql.Tx) error{
+	migrateV1,
+	migrateV2,
+	migrateV3,
+}
+
+func schemaVersion() int { return len(migrations) }
+
+// migrateV1 is the baseline: the schema fogping 1.0 through 1.3 built with
+// CREATE IF NOT EXISTS and column checks. 1.0.x rows (name only) come out
+// inactive; re-adding the name in the web UI reactivates the row and its history. It is written so that it brings any
+// of those databases, or an empty one, to the same state.
+func migrateV1(tx *sql.Tx) error {
+	if _, err := tx.Exec(`
+CREATE TABLE IF NOT EXISTS targets (
+  id   INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE
+);
+
+-- Raw rounds. Samples are a packed float32 blob: 4 bytes each, no parsing on read.
+CREATE TABLE IF NOT EXISTS rounds (
+  target_id INTEGER NOT NULL,
+  t         INTEGER NOT NULL,
+  sent      INTEGER NOT NULL,
+  recv      INTEGER NOT NULL,
+  samples   BLOB,
+  burst     INTEGER NOT NULL DEFAULT 0,
+  z         REAL    NOT NULL DEFAULT 0,
+  PRIMARY KEY (target_id, t)
+) WITHOUT ROWID;
+
+-- Hourly rollup. Percentile columns are NULL for a bucket in which every packet was lost.
+CREATE TABLE IF NOT EXISTS rounds_hourly (
+  target_id INTEGER NOT NULL,
+  t         INTEGER NOT NULL,
+  lo REAL, p50 REAL, p90 REAL, p99 REAL, hi REAL,
+  loss_pct REAL, bursts INTEGER, n INTEGER,
+  PRIMARY KEY (target_id, t)
+) WITHOUT ROWID;
+
+DROP TABLE IF EXISTS rounds_daily;
+`); err != nil {
+		return err
+	}
+	have, err := columns(tx, "targets")
+	if err != nil {
+		return err
+	}
+	for _, col := range []struct{ name, def string }{
+		{"type", "TEXT NOT NULL DEFAULT 'icmp'"},
+		{"host", "TEXT NOT NULL DEFAULT ''"},
+		{"port", "INTEGER NOT NULL DEFAULT 0"},
+		{"pace", "TEXT NOT NULL DEFAULT ''"},
+		{"interval_sec", "INTEGER NOT NULL DEFAULT 0"},
+		{"active", "INTEGER NOT NULL DEFAULT 0"},
+	} {
+		if have[col.name] {
+			continue
+		}
+		if _, err := tx.Exec(`ALTER TABLE targets ADD COLUMN ` + col.name + ` ` + col.def); err != nil {
+			return fmt.Errorf("targets.%s: %w", col.name, err)
+		}
+	}
+	return nil
+}
+
+func columns(tx *sql.Tx, table string) (map[string]bool, error) {
+	rows, err := tx.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	have := map[string]bool{}
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, typ string
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			return nil, err
+		}
+		have[name] = true
+	}
+	return have, rows.Err()
+}
+
+// migrate brings db to schemaVersion().
+func migrate(db *sql.DB) error {
+	var v int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
+		return err
+	}
+	if v > schemaVersion() {
+		return fmt.Errorf("database schema is version %d, this fogping knows up to %d: use a newer fogping", v, schemaVersion())
+	}
+	for i := v; i < schemaVersion(); i++ {
+		tx, err := db.Begin()
+		if err != nil {
+			return err
+		}
+		if err := migrations[i](tx); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("schema migration %d: %w", i+1, err)
+		}
+		if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, i+1)); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		if v > 0 {
+			log.Printf("storage: schema upgraded to version %d", i+1)
+		}
+	}
+	return nil
+}
+
+// migrateV2 lets a round say why it could not be measured, so a failed probe is
+// no longer stored as total loss.
+func migrateV2(tx *sql.Tx) error {
+	_, err := tx.Exec(`ALTER TABLE rounds ADD COLUMN err TEXT NOT NULL DEFAULT ''`)
+	return err
+}
+
+// migrateV3 gives a target room for its prober's own options: canonical JSON,
+// empty when it has none.
+func migrateV3(tx *sql.Tx) error {
+	_, err := tx.Exec(`ALTER TABLE targets ADD COLUMN options TEXT NOT NULL DEFAULT ''`)
+	return err
+}
+
+// backupBeforeUpgrade copies the database before a schema upgrade. An upgraded
+// database cannot be opened by an older fogping, so without a copy there is no way
+// back. VACUUM INTO writes a consistent, compact copy even while WAL holds recent
+// writes. The copy is named after the version it holds: fogping.db.bak-v2.
+//
+// A fresh database (version 0, nothing in it yet) and one that is already current
+// need no copy. If the copy cannot be made the upgrade does not happen: the data
+// matters more than starting this time, and the message says what to do.
+func backupBeforeUpgrade(db *sql.DB, dir string) error {
+	var v int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
+		return err
+	}
+	if v == 0 || v >= schemaVersion() {
+		return nil
+	}
+	path := filepath.Join(dir, fmt.Sprintf("fogping.db.bak-v%d", v))
+	if _, err := os.Stat(path); err == nil {
+		// A copy of this version already exists (an earlier upgrade attempt that
+		// did not finish). Keep it: it is the older, untouched one.
+		log.Printf("storage: backup %s already exists; keeping it", path)
+		return nil
+	}
+	if _, err := db.Exec(`VACUUM INTO ?`, path); err != nil {
+		os.Remove(path)
+		return fmt.Errorf("could not back up the database before upgrading it from schema %d to %d: %v\n"+
+			"  nothing was changed; free some disk space in %s and start again", v, schemaVersion(), err, dir)
+	}
+	log.Printf("storage: backed up the database before upgrading it (schema %d to %d): %s", v, schemaVersion(), path)
+	return nil
+}

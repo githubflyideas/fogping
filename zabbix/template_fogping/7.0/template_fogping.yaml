@@ -1,0 +1,190 @@
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: e9baaf739cd7485786be03e14b89ff9c
+      name: Templates/Applications
+  templates:
+    - uuid: f2d9aa1a3eae4b6c8673ed8873ac0d67
+      template: 'fogping by HTTP'
+      name: 'fogping by HTTP'
+      description: |
+        Latency distribution and loss from a fogping instance (https://github.com/githubflyideas/fogping).
+        fogping measures; this template only reads its summary (GET /api/stats) every minute.
+        Set {$FOGPING.URL} and {$FOGPING.TOKEN}. See README.md.
+      vendor:
+        name: fogping
+        version: 7.0-1
+      groups:
+        - name: Templates/Applications
+      items:
+        - uuid: 6f204e51c4094465a301258a38abb7dd
+          name: 'fogping: Get stats'
+          type: HTTP_AGENT
+          key: fogping.stats.get
+          history: '0'
+          value_type: TEXT
+          trends: '0'
+          description: 'Summary of the last 5 minutes for every fogping target. Master item for everything else.'
+          url: '{$FOGPING.URL}/api/stats'
+          headers:
+            - name: Authorization
+              value: 'Bearer {$FOGPING.TOKEN}'
+          tags:
+            - tag: component
+              value: raw
+          triggers:
+            - uuid: eaf3a890f34f4040b4d6d147e4a40c91
+              expression: 'nodata(/fogping by HTTP/fogping.stats.get,5m)=1'
+              name: 'fogping: no data from {$FOGPING.URL} for 5m'
+              priority: WARNING
+              description: 'fogping is unreachable, the token is wrong, or fogping runs without --zabbix.'
+      discovery_rules:
+        - uuid: e35c45f5b13a4df9ac7213e0aaf41920
+          name: 'fogping: Targets discovery'
+          type: DEPENDENT
+          key: fogping.targets.discovery
+          delay: '0'
+          description: 'One set of items per fogping target, keyed by its numeric id so a rename keeps the history.'
+          item_prototypes:
+            - uuid: 81cbff684f8c469bbbc4effba19f8dcc
+              name: 'fogping {#NAME}: median latency'
+              type: DEPENDENT
+              key: 'fogping.p50[{#ID}]'
+              delay: '0'
+              value_type: FLOAT
+              units: 'ms'
+              description: 'Median round-trip time over the last 5 minutes.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.targets[?(@.id=={#ID})].p50.first()'
+                  error_handler: DISCARD_VALUE
+              master_item:
+                key: fogping.stats.get
+              tags:
+                - tag: target
+                  value: '{#NAME}'
+            - uuid: 64130a92cb2848ea95e3035509398ae3
+              name: 'fogping {#NAME}: p90 latency'
+              type: DEPENDENT
+              key: 'fogping.p90[{#ID}]'
+              delay: '0'
+              value_type: FLOAT
+              units: 'ms'
+              description: '90th percentile round-trip time over the last 5 minutes.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.targets[?(@.id=={#ID})].p90.first()'
+                  error_handler: DISCARD_VALUE
+              master_item:
+                key: fogping.stats.get
+              tags:
+                - tag: target
+                  value: '{#NAME}'
+            - uuid: 11029b9eeb3f4d1b96aaec36664e98a8
+              name: 'fogping {#NAME}: p99 latency'
+              type: DEPENDENT
+              key: 'fogping.p99[{#ID}]'
+              delay: '0'
+              value_type: FLOAT
+              units: 'ms'
+              description: '99th percentile round-trip time over the last 5 minutes.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.targets[?(@.id=={#ID})].p99.first()'
+                  error_handler: DISCARD_VALUE
+              master_item:
+                key: fogping.stats.get
+              tags:
+                - tag: target
+                  value: '{#NAME}'
+            - uuid: a2eda0bffa4c4f8384fd09adb08bc96d
+              name: 'fogping {#NAME}: packet loss'
+              type: DEPENDENT
+              key: 'fogping.loss[{#ID}]'
+              delay: '0'
+              value_type: FLOAT
+              units: '%'
+              description: 'Share of probe packets lost over the last 5 minutes.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.targets[?(@.id=={#ID})].loss_pct.first()'
+                  error_handler: DISCARD_VALUE
+              master_item:
+                key: fogping.stats.get
+              tags:
+                - tag: target
+                  value: '{#NAME}'
+            - uuid: fa0116d9d0ef4d9b82441cf0fc71e3f8
+              name: 'fogping {#NAME}: loss bursts'
+              type: DEPENDENT
+              key: 'fogping.bursts[{#ID}]'
+              delay: '0'
+              value_type: UNSIGNED
+              units: ''
+              description: 'Rounds fogping flagged as a loss burst (robust z-score; the ◆ on its chart) in the last 5 minutes.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.targets[?(@.id=={#ID})].bursts.first()'
+                  error_handler: DISCARD_VALUE
+              master_item:
+                key: fogping.stats.get
+              tags:
+                - tag: target
+                  value: '{#NAME}'
+          trigger_prototypes:
+            - uuid: 9a34b6534bab43619c2a831614d361fe
+              expression: 'min(/fogping by HTTP/fogping.loss[{#ID}],5m)>20'
+              name: 'fogping {#NAME}: packet loss over 20% for 5m'
+              priority: WARNING
+              description: 'fogping lost more than 20% of probe packets to this target, continuously for 5 minutes.'
+            - uuid: 18898ce16d2841e380e6d95107de216f
+              expression: 'last(/fogping by HTTP/fogping.bursts[{#ID}])>0'
+              recovery_mode: RECOVERY_EXPRESSION
+              recovery_expression: 'max(/fogping by HTTP/fogping.bursts[{#ID}],10m)=0'
+              name: 'fogping {#NAME}: loss burst flagged'
+              priority: INFO
+              description: 'fogping marked an abnormal loss burst for this target (robust z-score over the last 4 hours). Resolves after 10 quiet minutes.'
+              dependencies:
+                - name: 'fogping {#NAME}: packet loss over 20% for 5m'
+                  expression: 'min(/fogping by HTTP/fogping.loss[{#ID}],5m)>20'
+          graph_prototypes:
+            - uuid: 08deea4897204189a572a27f8653cc0d
+              name: 'fogping {#NAME}: latency p50 / p90 / p99'
+              graph_items:
+                - color: 1A7C11
+                  item:
+                    host: 'fogping by HTTP'
+                    key: 'fogping.p50[{#ID}]'
+                - sortorder: '1'
+                  color: F2A30F
+                  item:
+                    host: 'fogping by HTTP'
+                    key: 'fogping.p90[{#ID}]'
+                - sortorder: '2'
+                  color: E53935
+                  item:
+                    host: 'fogping by HTTP'
+                    key: 'fogping.p99[{#ID}]'
+          master_item:
+            key: fogping.stats.get
+          lld_macro_paths:
+            - lld_macro: '{#ID}'
+              path: $.id
+            - lld_macro: '{#NAME}'
+              path: $.name
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.targets
+      macros:
+        - macro: '{$FOGPING.TOKEN}'
+          type: SECRET_TEXT
+          description: 'The token fogping was started with (FOGPING_ZABBIX_TOKEN).'
+        - macro: '{$FOGPING.URL}'
+          value: 'http://fogping.example:8518'
+          description: 'fogping base URL, no trailing slash.'

@@ -1,0 +1,377 @@
+{
+ "description": "Round-result vectors. 'result' is what a prober printed, 'packets' how many probes fogping asked for. 'want' is the stored round (s sent, r received, ms samples, e error text); 'error' is the code every implementation must report. An error answer is not invalid: it becomes a round with s 0 and e set.",
+ "vectors": [
+  {
+   "name": "all received",
+   "packets": 3,
+   "result": {
+    "protocol": "fogping-probe/1",
+    "sent": 3,
+    "received": 3,
+    "ms": [
+     1,
+     2,
+     3.5
+    ]
+   },
+   "want": {
+    "s": 3,
+    "r": 3,
+    "ms": [
+     1,
+     2,
+     3.5
+    ]
+   }
+  },
+  {
+   "name": "some lost",
+   "packets": 3,
+   "result": {
+    "protocol": "fogping-probe/1",
+    "sent": 3,
+    "received": 1,
+    "ms": [
+     7
+    ]
+   },
+   "want": {
+    "s": 3,
+    "r": 1,
+    "ms": [
+     7
+    ]
+   }
+  },
+  {
+   "name": "all lost",
+   "packets": 3,
+   "result": {
+    "protocol": "fogping-probe/1",
+    "sent": 3,
+    "received": 0,
+    "ms": []
+   },
+   "want": {
+    "s": 3,
+    "r": 0,
+    "ms": []
+   }
+  },
+  {
+   "name": "fewer sent than asked",
+   "packets": 3,
+   "result": {
+    "protocol": "fogping-probe/1",
+    "sent": 2,
+    "received": 2,
+    "ms": [
+     1,
+     1
+    ]
+   },
+   "want": {
+    "s": 2,
+    "r": 2,
+    "ms": [
+     1,
+     1
+    ]
+   }
+  },
+  {
+   "name": "zero rtt is allowed",
+   "packets": 1,
+   "result": {
+    "protocol": "fogping-probe/1",
+    "sent": 1,
+    "received": 1,
+    "ms": [
+     0
+    ]
+   },
+   "want": {
+    "s": 1,
+    "r": 1,
+    "ms": [
+     0
+    ]
+   }
+  },
+  {
+   "name": "the prober's own failure",
+   "packets": 10,
+   "result": {
+    "protocol": "fogping-probe/1",
+    "error": "dns: no such host"
+   },
+   "want": {
+    "s": 0,
+    "r": 0,
+    "ms": [],
+    "e": "dns: no such host"
+   }
+  },
+  {
+   "name": "error text is cleaned",
+   "packets": 10,
+   "result": {
+    "protocol": "fogping-probe/1",
+    "error": "  line1\nline2\t x  "
+   },
+   "want": {
+    "s": 0,
+    "r": 0,
+    "ms": [],
+    "e": "line1 line2 x"
+   }
+  },
+  {
+   "name": "error text is cut at 200 characters",
+   "packets": 10,
+   "result": {
+    "protocol": "fogping-probe/1",
+    "error": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+   },
+   "want": {
+    "s": 0,
+    "r": 0,
+    "ms": [],
+    "e": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+   }
+  },
+  {
+   "name": "unknown field is ignored",
+   "packets": 1,
+   "result": {
+    "protocol": "fogping-probe/1",
+    "sent": 1,
+    "received": 1,
+    "ms": [
+     1
+    ],
+    "future": true
+   },
+   "want": {
+    "s": 1,
+    "r": 1,
+    "ms": [
+     1
+    ]
+   }
+  },
+  {
+   "name": "wrong protocol",
+   "packets": 10,
+   "result": {
+    "protocol": "fogping-probe/2",
+    "sent": 1,
+    "received": 1,
+    "ms": [
+     1
+    ]
+   },
+   "error": "bad_protocol"
+  },
+  {
+   "name": "missing protocol",
+   "packets": 10,
+   "result": {
+    "sent": 1,
+    "received": 1,
+    "ms": [
+     1
+    ]
+   },
+   "error": "bad_protocol"
+  },
+  {
+   "name": "not an object",
+   "packets": 10,
+   "result": [
+    1,
+    2
+   ],
+   "error": "bad_result"
+  },
+  {
+   "name": "sent missing",
+   "packets": 10,
+   "result": {
+    "protocol": "fogping-probe/1",
+    "received": 1,
+    "ms": [
+     1
+    ]
+   },
+   "error": "bad_result"
+  },
+  {
+   "name": "ms missing",
+   "packets": 10,
+   "result": {
+    "protocol": "fogping-probe/1",
+    "sent": 1,
+    "received": 1
+   },
+   "error": "bad_result"
+  },
+  {
+   "name": "both measurement and error",
+   "packets": 10,
+   "result": {
+    "protocol": "fogping-probe/1",
+    "sent": 1,
+    "received": 1,
+    "ms": [
+     1
+    ],
+    "error": "x"
+   },
+   "error": "ambiguous"
+  },
+  {
+   "name": "neither",
+   "packets": 10,
+   "result": {
+    "protocol": "fogping-probe/1"
+   },
+   "error": "ambiguous"
+  },
+  {
+   "name": "empty error",
+   "packets": 10,
+   "result": {
+    "protocol": "fogping-probe/1",
+    "error": "  "
+   },
+   "error": "bad_error"
+  },
+  {
+   "name": "sent zero",
+   "packets": 10,
+   "result": {
+    "protocol": "fogping-probe/1",
+    "sent": 0,
+    "received": 0,
+    "ms": []
+   },
+   "error": "bad_counts"
+  },
+  {
+   "name": "sent above packets",
+   "packets": 10,
+   "result": {
+    "protocol": "fogping-probe/1",
+    "sent": 11,
+    "received": 0,
+    "ms": []
+   },
+   "error": "bad_counts"
+  },
+  {
+   "name": "received above sent",
+   "packets": 3,
+   "result": {
+    "protocol": "fogping-probe/1",
+    "sent": 2,
+    "received": 3,
+    "ms": [
+     1,
+     1,
+     1
+    ]
+   },
+   "error": "bad_counts"
+  },
+  {
+   "name": "received negative",
+   "packets": 10,
+   "result": {
+    "protocol": "fogping-probe/1",
+    "sent": 2,
+    "received": -1,
+    "ms": []
+   },
+   "error": "bad_counts"
+  },
+  {
+   "name": "ms count differs from received",
+   "packets": 3,
+   "result": {
+    "protocol": "fogping-probe/1",
+    "sent": 3,
+    "received": 2,
+    "ms": [
+     1
+    ]
+   },
+   "error": "bad_samples"
+  },
+  {
+   "name": "negative rtt",
+   "packets": 1,
+   "result": {
+    "protocol": "fogping-probe/1",
+    "sent": 1,
+    "received": 1,
+    "ms": [
+     -1
+    ]
+   },
+   "error": "bad_samples"
+  },
+  {
+   "name": "rtt above ten minutes",
+   "packets": 1,
+   "result": {
+    "protocol": "fogping-probe/1",
+    "sent": 1,
+    "received": 1,
+    "ms": [
+     600001
+    ]
+   },
+   "error": "bad_samples"
+  },
+  {
+   "name": "rtt as text",
+   "packets": 1,
+   "result": {
+    "protocol": "fogping-probe/1",
+    "sent": 1,
+    "received": 1,
+    "ms": [
+     "1"
+    ]
+   },
+   "error": "bad_result"
+  },
+  {
+   "name": "counts as text",
+   "packets": 1,
+   "result": {
+    "protocol": "fogping-probe/1",
+    "sent": "1",
+    "received": 1,
+    "ms": [
+     1
+    ]
+   },
+   "error": "bad_result"
+  },
+  {
+   "name": "fractional count",
+   "packets": 10,
+   "result": {
+    "protocol": "fogping-probe/1",
+    "sent": 1.5,
+    "received": 1,
+    "ms": [
+     1
+    ]
+   },
+   "error": "bad_result"
+  }
+ ]
+}
