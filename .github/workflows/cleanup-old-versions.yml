@@ -1,0 +1,72 @@
+name: cleanup-old-versions
+
+# A ONE-OFF tool, started by hand, to delete every old version of this repository: all
+# releases (with their download files), all tags and all branches except main. It
+# exists because the history of main was squashed into a single commit, and the old
+# releases, tags and branches still point at the old history. Delete this file once it
+# has run.
+#
+# How to use it: Actions -> cleanup-old-versions -> Run workflow.
+#   keep_tag  leave it empty to delete every release and tag. Or name one published
+#             release to keep, for example v1.4.4.
+#   confirm   leave it empty to only LIST what would be deleted; type DELETE to delete.
+#
+# Deleting cannot be undone.
+on:
+  workflow_dispatch:
+    inputs:
+      keep_tag:
+        description: 'Empty = delete every release and tag. Or one published release to keep, for example v1.4.4'
+        required: false
+        default: ''
+      confirm:
+        description: 'Type DELETE to really delete. Anything else only lists what would be deleted.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: List, and delete when confirmed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          R: ${{ github.repository }}
+          KEEP: ${{ inputs.keep_tag }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          set -uo pipefail
+          # Inputs arrive as environment variables, never spliced into this script.
+          if [[ -n $KEEP ]]; then
+            [[ $KEEP =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "keep_tag must be empty or look like v1.2.3"; exit 1; }
+          fi
+
+          releases=$(gh release list -R "$R" -L 1000 --json tagName --jq '.[].tagName')
+          if [[ -n $KEEP ]]; then
+            grep -qxF "$KEEP" <<<"$releases" || { echo "STOP: $KEEP is not a published release of $R."; exit 1; }
+          fi
+          tags=$(gh api "repos/$R/git/matching-refs/tags" --paginate --jq '.[].ref' | sed 's|^refs/tags/||')
+          branches=$(gh api "repos/$R/branches?per_page=100" --paginate --jq '.[].name')
+          # A tag that has a release is removed together with it; only the others are deleted alone.
+          orphans=$(grep -vxF -f <(printf '%s\n' "$releases") <<<"$tags")
+
+          echo "Repository: $R   keeping: ${KEEP:-no release}   (and the branch main)"
+          echo "Releases to delete (with their tags):"; grep -vxF "$KEEP" <<<"$releases" | sed 's/^/   /'
+          echo "Tags without a release to delete:";     grep -vxF "$KEEP" <<<"$orphans"  | sed 's/^/   /'
+          echo "Branches to delete:";                   grep -vxF main    <<<"$branches" | sed 's/^/   /'
+
+          if [[ $CONFIRM != DELETE ]]; then
+            echo; echo "DRY RUN: nothing was deleted. Run again with confirm = DELETE to delete."
+            exit 0
+          fi
+
+          fail=0
+          del() { local what=$1; shift; if "$@" >/dev/null 2>&1; then echo "deleted $what"; else echo "FAILED  $what"; fail=1; fi; }
+          while read -r t; do [[ -n $t && $t != "$KEEP" ]] && del "release+tag $t" gh release delete "$t" -R "$R" --cleanup-tag --yes; done <<<"$releases"
+          while read -r t; do [[ -n $t && $t != "$KEEP" ]] && del "tag $t" gh api -X DELETE "repos/$R/git/refs/tags/$t"; done <<<"$orphans"
+          while read -r b; do [[ -n $b && $b != main ]] && del "branch $b" gh api -X DELETE "repos/$R/git/refs/heads/$b"; done <<<"$branches"
+          [[ $fail == 0 ]] || { echo "Some deletions FAILED (a tag-protection rule?). Fix the cause and run it again: it only deletes what is left."; exit 1; }
+          echo "done."
