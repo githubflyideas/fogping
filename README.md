@@ -70,6 +70,7 @@ Everything else lives in the **[full guide](docs/GUIDE.md)**:
 [reading the chart](docs/GUIDE.md#reading-the-chart) ·
 [upgrading](docs/GUIDE.md#upgrading) ·
 [troubleshooting](docs/GUIDE.md#troubleshooting) ·
+[HTTP API](docs/API.md) ([OpenAPI 3.1](docs/openapi.yaml)) ·
 [build from source](docs/GUIDE.md#build-from-source)
 
 🌐 [English / 中文 / Español / Français / Português / Deutsch / Русский / 日本語 / 한국어 / Bahasa Indonesia / Tiếng Việt / العربية / हिन्दी / বাংলা / اردو / Türkçe / ไทย](docs/LANGUAGES.md)

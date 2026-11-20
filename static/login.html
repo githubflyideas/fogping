@@ -28,6 +28,7 @@
            border-radius:4px; padding:11px; cursor:pointer; }
   button:hover { background:rgba(232,180,74,.12); }
   .err { color:var(--alert); font-size:12px; margin-top:12px; min-height:16px; }
+  .caps { color:var(--amber); font-size:12px; margin-top:6px; }
 
   html[data-theme="daylight"] {
     --bg:#f4f1e8; --panel:#faf8f1; --screen:#fffef9; --line:#e0dbc9; --ctl:#89887c;
@@ -44,7 +45,8 @@
   <h1 class="mark">fogping <span aria-hidden="true">●</span></h1>
   <p class="sub">Sign in to fogping</p>
   <label for="user">USERNAME</label><input id="user" autocomplete="username" autofocus>
-  <label for="pass">PASSWORD</label><input id="pass" type="password" autocomplete="current-password">
+  <label for="pass">PASSWORD</label><input id="pass" type="password" autocomplete="current-password" aria-describedby="caps">
+  <p class="caps" id="caps" aria-live="polite"></p>
   <button id="go">Sign in</button>
   <div class="err" id="err" role="alert"></div>
 </main>
@@ -62,6 +64,18 @@ async function login() {
   } else $('err').textContent = 'Wrong username or password';
 }
 $('go').onclick = login;
+// Caps Lock hint: the state is read from any key or mouse event (a focus event
+// does not carry it) and shown only while the password field has focus.
+let capsOn = false;
+const showCaps = () => {
+  $('caps').textContent = capsOn && document.activeElement === $('pass') ? 'Caps Lock is on' : '';
+};
+const readCaps = e => {
+  if (typeof e.getModifierState === 'function') { capsOn = e.getModifierState('CapsLock'); showCaps(); }
+};
+for (const type of ['keydown', 'keyup', 'mousedown']) document.addEventListener(type, readCaps);
+$('pass').addEventListener('focus', showCaps);
+$('pass').addEventListener('blur', showCaps);
 document.addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
 </script>
 </body>

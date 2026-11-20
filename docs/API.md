@@ -4,6 +4,9 @@ fogping's web UI and the Zabbix template talk to fogping through this API. The
 same rules hold in pingping and vrf-ping, so a client written for one reads the
 others the same way.
 
+The same API in machine-readable form: [openapi.yaml](openapi.yaml) (OpenAPI 3.1).
+A test (`TestOpenAPIMatchesRoutes`) fails when it and the registered routes differ.
+
 ## Rules
 
 These are enforced by tests (`api_test.go`): code that breaks one does not pass CI.
