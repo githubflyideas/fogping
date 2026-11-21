@@ -131,10 +131,8 @@ func main() {
 	for _, l := range securitySummary(st, probesLoaded) {
 		log.Printf("  %s", l)
 	}
-	if len(users) == 0 && !st.localOnly {
-		log.Printf("tip: protect the web UI with  ./fogping user=u1,u2 passwd=p1,p2  or --localhost + reverse proxy")
-	}
 	log.Printf("➜  open http://localhost%s for the smoke graph", portOf(cfg.Listen))
+	printNextSteps(cfg, users, st.localOnly)
 
 	go func() {
 		if err := serveWeb(cfg, store, run, users); err != nil {
@@ -288,6 +286,34 @@ func portOf(listen string) string {
 		}
 	}
 	return ":8518"
+}
+
+// printNextSteps spoon-feeds the exact command line for whatever this start
+// cannot do yet, so a first-time user never has to guess a flag from the
+// chart page: no login yet → the login line; targets read-only → the --edit
+// line for this start's own mode. Every line can be copied as printed.
+func printNextSteps(cfg *Config, users map[string]string, localOnly bool) {
+	var lines []string
+	if len(users) == 0 && !localOnly {
+		lines = append(lines,
+			"  set a login:     ./fogping user=admin passwd=change-me",
+			"  keep it private: FOGPING_PASSWD=change-me ./fogping user=admin   (the password stays off the command line)")
+	}
+	if !cfg.Editable {
+		switch {
+		case localOnly:
+			lines = append(lines, "  add targets:     ./fogping --localhost --edit   then open the UI and click ✎ targets")
+		case len(users) == 0:
+			lines = append(lines, "  add targets:     ./fogping --edit user=admin passwd=change-me   then open the UI and click ✎ targets")
+		default:
+			lines = append(lines, "  add targets:     ./fogping --edit (with your usual login)   then open the UI and click ✎ targets")
+		}
+	}
+	lines = append(lines, "  every command:   ./fogping help")
+	log.Printf("next steps — copy a line, restart, done:")
+	for _, l := range lines {
+		log.Printf("%s", l)
+	}
 }
 
 // checkEditAllowed is the rule that --edit needs a login or --localhost. It is its own
