@@ -25,12 +25,18 @@
 Images for linux/amd64, arm64 and arm/v7 (Raspberry Pi, NAS, RouterOS). Data lives in `/data`.
 
 ```bash
-# first run: --edit so you can add targets in the web UI
-docker run -d --name fogping --restart unless-stopped   -p 8518:8518   -v fogping_data:/data   githubflyideas/fogping:latest   --edit user=admin passwd=change-me
+# first run: just start it — a demo target is already there, so the first
+# graph appears within a minute (no login yet)
+docker run -d --name fogping --restart unless-stopped -p 8518:8518 -v fogping_data:/data githubflyideas/fogping:latest
 
-# done editing: recreate without --edit (data in ~/fogping is kept)
+# to add your own targets, recreate it with --edit and a login
+# (pick your own password — change-me is only an example):
 docker rm -f fogping
-docker run -d --name fogping --restart unless-stopped   -p 8518:8518   -v fogping_data:/data   githubflyideas/fogping:latest            user=admin passwd=change-me
+docker run -d --name fogping --restart unless-stopped -p 8518:8518 -v fogping_data:/data githubflyideas/fogping:latest --edit user=admin passwd=change-me
+
+# done editing: recreate without --edit (the data volume is kept)
+docker rm -f fogping
+docker run -d --name fogping --restart unless-stopped -p 8518:8518 -v fogping_data:/data githubflyideas/fogping:latest user=admin passwd=change-me
 ```
 Everything after the image name is passed to fogping as-is (`--edit`, `--days=30`,
 `user=` / `passwd=`). Where you can set environment variables but not a command
@@ -62,10 +68,10 @@ extra capabilities on Docker 20.10+; `--user` keeps the mounted directory writab
 
 ```bash
 sudo mkdir -p /opt/fogping && sudo chown "$USER": /opt/fogping && cd /opt/fogping
-wget https://github.com/githubflyideas/fogping/releases/download/v1.4.6/fogping-v1.4.6-linux-amd64.tar.gz
-wget https://github.com/githubflyideas/fogping/releases/download/v1.4.6/SHA256SUMS
-sha256sum --ignore-missing -c SHA256SUMS     # expect: fogping-v1.4.6-linux-amd64.tar.gz: OK
-tar --no-same-owner -xzf fogping-v1.4.6-linux-amd64.tar.gz
+wget https://github.com/githubflyideas/fogping/releases/download/v1.5.0/fogping-v1.5.0-linux-amd64.tar.gz
+wget https://github.com/githubflyideas/fogping/releases/download/v1.5.0/SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS     # expect: fogping-v1.5.0-linux-amd64.tar.gz: OK
+tar --no-same-owner -xzf fogping-v1.5.0-linux-amd64.tar.gz
 ./fogping --version
 ```
 
@@ -498,3 +504,11 @@ with `--zabbix` plus a token (`FOGPING_ZABBIX_TOKEN` or
 `FOGPING_ZABBIX_TOKEN_FILE`; in Docker `FOGPING_ZABBIX=1`); without `--zabbix`
 nothing changes. The template and step-by-step setup are in
 [`zabbix/template_fogping/7.0`](../zabbix/template_fogping/7.0/README.md).
+
+For **multi-point monitoring** — the same services watched from several
+locations — run one fogping per location and create one Zabbix host per
+fogping, each with its own token: Zabbix polls them all and puts the
+locations side by side, with per-location triggers. There is no
+master/slave mode in fogping and nothing to pair. A complete worked
+example (three sites, every step, including how to prove each site is
+reporting) is in [docs/ZABBIX.md](ZABBIX.md).
