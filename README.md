@@ -15,7 +15,7 @@
 **Step 1 — download and start it** (Linux x86-64, one command):
 
 ```bash
-mkdir -p ~/fogping && cd ~/fogping && curl -L https://github.com/githubflyideas/fogping/releases/download/v1.5.0/fogping-v1.5.0-linux-amd64.tar.gz | tar --no-same-owner -xz && ./fogping
+mkdir -p ~/fogping && cd ~/fogping && curl -L https://github.com/githubflyideas/fogping/releases/download/v1.5.1/fogping-v1.5.1-linux-amd64.tar.gz | tar --no-same-owner -xz && ./fogping
 ```
 
 **Step 2 — open it.** Go to <http://localhost:8518>. A demo target
