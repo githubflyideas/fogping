@@ -85,6 +85,7 @@ FLAGS
   --check         check flags, login, tokens, data directory, database, port and
                   plugins; print a report and exit without starting anything
   --gen-token=F   write a new random token to file F (owner-only, never printed)
+  check / gen-token F   the pingping spellings of --check / --gen-token=F; both work
   user=  passwd=  turn on the login page (comma-separated lists)
   passwd-file=F   read the passwords from file F instead, one per line
 

@@ -32,7 +32,7 @@ func main() {
 	probes := flag.Bool("probes", false, "load external probers from ./probes (see docs/PROBE-PROTOCOL.md)")
 	check := flag.Bool("check", false, "check the configuration and this machine, report, and exit without starting")
 	genTokenPath := flag.String("gen-token", "", "write a new random Zabbix token to this file (owner-only) and exit")
-	args := os.Args[1:]
+	args := aliasArgs(os.Args[1:])
 	for _, a := range args {
 		if a == "help" { // `fogping help` would otherwise be rejected as a bad auth arg
 			printHelp(os.Stdout)
@@ -155,6 +155,26 @@ func main() {
 // stops at the first non-flag argument, so `fogping user=a passwd=b --edit` would
 // otherwise treat --edit as a stray positional. key=value words go to auth; flags
 // and bare values (`--days 300`) stay with the flags.
+// aliasArgs accepts the subcommand spellings pingping uses for the same two
+// operations — `check` and `gen-token FILE` — so the family's commands read
+// the same whichever binary is in front of you. Only the first argument is
+// translated; everything after it is untouched.
+func aliasArgs(args []string) []string {
+	if len(args) == 0 {
+		return args
+	}
+	switch args[0] {
+	case "check":
+		return append([]string{"--check"}, args[1:]...)
+	case "gen-token":
+		if len(args) < 2 {
+			return []string{"--gen-token"} // flag parsing reports the missing value
+		}
+		return append([]string{"--gen-token=" + args[1]}, args[2:]...)
+	}
+	return args
+}
+
 func splitArgs(args []string) (flags, auth []string) {
 	for _, a := range args {
 		if !strings.HasPrefix(a, "-") && strings.Contains(a, "=") {
