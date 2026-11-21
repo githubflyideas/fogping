@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/brand/fogping-logo-light.png" alt="fogping" width="560"></p>
+
 > ### A SmokePing-like network latency tool.
 > **One binary, embedded SQLite, Web UI — just download and run.**
 >
@@ -10,29 +12,60 @@
 
 ## Quick start
 
-One command (Linux x86-64) — downloads, unpacks and starts fogping:
+**Step 1 — download and start it** (Linux x86-64, one command):
 
 ```bash
-mkdir -p ~/fogping && cd ~/fogping && curl -L https://github.com/githubflyideas/fogping/releases/download/v1.4.6/fogping-v1.4.6-linux-amd64.tar.gz | tar --no-same-owner -xz && ./fogping --edit user=admin passwd=change-me
+mkdir -p ~/fogping && cd ~/fogping && curl -L https://github.com/githubflyideas/fogping/releases/download/v1.5.0/fogping-v1.5.0-linux-amd64.tar.gz | tar --no-same-owner -xz && ./fogping
 ```
 
-Or with Docker (amd64 / arm64 / armv7):
+**Step 2 — open it.** Go to <http://localhost:8518>. A demo target
+(`www.google.com`) is already there, so your first graph appears within a
+minute. There is no login yet — anyone who can reach the port can look,
+which is fine for a first try. The terminal also prints the exact lines
+for the next two steps, so you can copy them from there.
 
-```bash
-docker run -d --name fogping --restart unless-stopped -p 8518:8518 -v fogping_data:/data githubflyideas/fogping:latest --edit user=admin passwd=change-me
-```
-
-Then open <http://localhost:8518>, log in, and watch your first puff of network smoke.
-A demo target (`www.google.com`) is already there; click **✎ targets** to add your own.
-
-## Going live
-
-`--edit` lets you add, change and delete targets in the web UI. When you are done,
-press Ctrl-C and restart **without** `--edit` — the UI becomes read-only and safe to share:
+**Step 3 — set a login.** Stop fogping (Ctrl-C) and start it with a user
+name and a password. Pick your own password — `change-me` is only an
+example:
 
 ```bash
 ./fogping user=admin passwd=change-me
 ```
+
+**Step 4 — add your own targets.** Stop it again and add `--edit` — that
+one word is what allows adding, changing and deleting targets in the web
+UI:
+
+```bash
+./fogping --edit user=admin passwd=change-me
+```
+
+Open the UI, click **✎ targets**, add yours. When you are done, stop it
+and start again **without** `--edit` (the step 3 line): the UI turns
+read-only and safe to share. Forgot the password? Nothing is stored
+anywhere — just start again with a new `passwd=`.
+
+Or with Docker (amd64 / arm64 / armv7) — the same steps apply; the words
+after the image name are fogping's own, so add a login, or `--edit` and a
+login, at the end when you reach those steps:
+
+```bash
+docker run -d --name fogping --restart unless-stopped -p 8518:8518 -v fogping_data:/data githubflyideas/fogping:latest
+```
+
+## Multi-point monitoring
+
+One fogping measures from one place. To watch the same services **from
+several locations**, run one fogping per location and let **Zabbix**
+pull them together — no master/slave pairing to configure: Zabbix polls
+each fogping's read-only stats endpoint once a minute and does the
+aggregation, dashboards and alerting. **[A complete worked example —
+three sites, every step](docs/ZABBIX.md)**.
+
+## Going live
+
+Everything below is a ready-made line — copy it as printed (with your own
+password in place of `change-me`):
 
 | I want to… | Run |
 |---|---|
@@ -62,6 +95,7 @@ is marked `!`.
 ## More
 
 Everything else lives in the **[full guide](docs/GUIDE.md)**:
+[multi-point monitoring with Zabbix](docs/ZABBIX.md) ·
 [Docker details](docs/GUIDE.md#docker) ·
 [systemd service](docs/GUIDE.md#run-as-a-systemd-service) ·
 [reverse proxy](docs/GUIDE.md#behind-a-reverse-proxy) ·
