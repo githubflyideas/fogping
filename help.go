@@ -17,19 +17,32 @@ always start it from the same directory.
 
 EXAMPLES
 
-  First try (web UI open to anyone who can reach port 8518):
-    ./fogping
+  Your first five minutes, step by step:
 
-  With a login (recommended):
-    ./fogping user=admin passwd=change-me
+  1. Start it:
+       ./fogping
+     Open http://<this-server-ip>:8518 in a browser. A demo target
+     (www.google.com) is already there, so the first graph appears within
+     a minute. Nothing to log in to yet, and targets cannot be changed.
+
+  2. Give it a login. Stop fogping (Ctrl-C) and start it with a user name
+     and a password — pick your own; "change-me" is only an example:
+       ./fogping user=admin passwd=change-me
+
+  3. Add your own targets. Start with --edit, open the web UI and click
+     "✎ targets". Changes apply at once:
+       ./fogping --edit user=admin passwd=change-me
+
+  4. When you are done, stop it and start again WITHOUT --edit (the
+     step 2 line). The UI is then read-only and safe to share.
+
+  Forgot the password? Nothing is stored anywhere: the login exists only
+  in the line you start with. Just start again with a new passwd=.
+
+  More ready-made lines:
 
   Several users (names and passwords are paired by position):
     ./fogping user=alice,bob passwd=alice-pw,bob-pw
-
-  Add, edit or delete targets: start with --edit, open the web UI, click
-  "✎ targets". Changes apply at once. When done, press Ctrl-C and start again
-  without --edit, so the UI is read-only:
-    ./fogping --edit user=admin passwd=change-me
 
   Keep 30 days of history instead of 93 (93 is also the maximum):
     ./fogping --days=30 user=admin passwd=change-me
